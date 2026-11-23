@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Ofensiva</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ff9a3c' d='M12.6 1.6c.7 3.4-1 5.5-2.7 7.4C8.3 10.8 6.4 12.7 6.4 15.6c0 3.7 2.6 6.8 5.6 6.8s5.6-3 5.6-6.6c0-2.6-1.2-4.6-2.5-6-.3 1.4-1 2.5-2 3 .5-3.9-.6-8.1-.5-11.2z'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <!-- gradientes compartilhados pelos ícones de fogo -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="grad-fogo" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#ff5a1f"/>
+        <stop offset=".55" stop-color="#ff9a3c"/>
+        <stop offset="1" stop-color="#ffc857"/>
+      </linearGradient>
+      <linearGradient id="grad-fogo-int" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#ffd36b"/>
+        <stop offset="1" stop-color="#fff1b8"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <header class="topo">
+    <a class="marca" href="#">
+      <span class="marca-fogo fogo aceso" id="marca-fogo"></span>
+      <span>ofensiva</span>
+    </a>
+    <nav class="topo-nav">
+      <a href="#registro">Hoje</a>
+      <a href="#todos">Tarefas</a>
+      <a href="#ano">Ano</a>
+    </nav>
+    <div class="topo-dir">
+      <div class="topo-chama" id="topo-chama" title="Ofensiva geral"></div>
+      <button class="btn-icone" id="btn-ajustes" title="Ajustes" aria-label="Ajustes"></button>
+    </div>
+  </header>
+
+  <main class="app" id="app">
+    <div class="painel-dia">
+    <section class="hero">
+      <div class="card ofensiva" id="ofensiva"></div>
+      <div class="card proverbio" id="proverbio"></div>
+    </section>
+    <aside class="card todos" id="todos"></aside>
+    <section class="registro" id="registro"></section>
+    </div>
+    <section class="ano" id="ano"></section>
+    <footer class="rodape">feito pra você manter a chama acesa · seus dados ficam só neste computador</footer>
+  </main>
+
+  <div id="claudinho-raiz"></div>
+  <div class="dica" id="dica" hidden></div>
+  <div class="avisos" id="avisos"></div>
+  <canvas class="confete" id="confete"></canvas>
+  <div id="modais"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
