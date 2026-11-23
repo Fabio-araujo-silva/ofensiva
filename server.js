@@ -56,45 +56,118 @@ async function gravarAtomico(arq, conteudo) {
   }
 }
 
-let cache = null; // { rev, estado }
-async function carregarEstado() {
-  if (!cache) cache = await lerJSON(ARQ_ESTADO, { rev: 0, estado: null });
-  return cache;
-}
+// ---------- proteção dos dados ----------
+// 1) gravação atômica (arquivo temporário + rename)
+// 2) backup diário (120 dias) + um backup por mês para sempre
+// 3) snapshot "protecao-*" antes de qualquer gravação que DIMINUA os dados
+// 4) recusa trocar um estado com dados por um estado vazio
+// 5) se estado.json estiver corrompido, separa o arquivo e recupera do backup mais novo
+// 6) opcional: OFENSIVA_BACKUP_EXTRA espelha tudo numa segunda pasta (ex.: OneDrive)
+const PASTA_EXTRA = process.env.OFENSIVA_BACKUP_EXTRA ? path.resolve(process.env.OFENSIVA_BACKUP_EXTRA) : null;
+const DIARIOS_MANTIDOS = 120;
+const PROTECOES_MANTIDAS = 300;
 
 const hojeLocal = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+const carimbo = () => new Date().toISOString().replace(/[:.]/g, '-');
+const existe = (arq) => fs.access(arq).then(() => true, () => false);
 
-async function backupDiario() {
-  const alvo = path.join(PASTA_BACKUP, `estado-${hojeLocal()}.json`);
+function medir(estado) {
+  let registros = 0;
+  for (const d of Object.values(estado?.dias || {})) registros += Object.keys(d || {}).length;
+  return { habitos: (estado?.habitos || []).length, registros };
+}
+
+async function podar(pasta, prefixo, manter) {
+  const arqs = (await fs.readdir(pasta)).filter((f) => f.startsWith(prefixo)).sort();
+  for (const f of arqs.slice(0, Math.max(0, arqs.length - manter))) await fs.unlink(path.join(pasta, f)).catch(() => {});
+}
+
+let cache = null; // { rev, estado }
+async function carregarEstado() {
+  if (cache) return cache;
+  if (!(await existe(ARQ_ESTADO))) return (cache = { rev: 0, estado: null });
   try {
-    await fs.access(alvo);
-    return; // já tem o de hoje
-  } catch {}
-  try {
-    await fs.mkdir(PASTA_BACKUP, { recursive: true });
-    await fs.copyFile(ARQ_ESTADO, alvo);
-    const antigos = (await fs.readdir(PASTA_BACKUP)).filter((f) => f.startsWith('estado-')).sort();
-    for (const f of antigos.slice(0, -21)) await fs.unlink(path.join(PASTA_BACKUP, f));
-  } catch {
-    /* primeiro uso: ainda não existe estado.json */
+    cache = JSON.parse(await fs.readFile(ARQ_ESTADO, 'utf8'));
+    return cache;
+  } catch (e) {
+    // nunca começa "do zero" por cima de um arquivo ilegível
+    const separado = path.join(DADOS, `estado.corrompido-${carimbo()}.json`);
+    await fs.rename(ARQ_ESTADO, separado).catch(() => {});
+    console.error(`[dados] estado.json ilegível (${e.message}); guardado em ${separado}`);
+    const backups = (await fs.readdir(PASTA_BACKUP).catch(() => []))
+      .filter((f) => /^(estado|protecao|mensal)-/.test(f))
+      .map((f) => path.join(PASTA_BACKUP, f));
+    const comData = await Promise.all(backups.map(async (f) => ({ f, t: (await fs.stat(f)).mtimeMs })));
+    for (const { f } of comData.sort((a, b) => b.t - a.t)) {
+      try {
+        cache = JSON.parse(await fs.readFile(f, 'utf8'));
+        await gravarAtomico(ARQ_ESTADO, JSON.stringify(cache));
+        console.error(`[dados] recuperado de ${f}`);
+        return cache;
+      } catch {}
+    }
+    throw new Error('estado.json ilegível e nenhum backup válido — nada foi apagado, veja a pasta dados/');
+  }
+}
+
+let ultimaProtecao = 0;
+async function fazerBackups(atual, novoEstado) {
+  if (!atual.estado) return;
+  const conteudo = JSON.stringify(atual);
+  const hoje = hojeLocal();
+  const pastas = [PASTA_BACKUP, PASTA_EXTRA && path.join(PASTA_EXTRA, 'backups')].filter(Boolean);
+  for (const pasta of pastas) {
+    try {
+      await fs.mkdir(pasta, { recursive: true });
+      const diario = path.join(pasta, `estado-${hoje}.json`);
+      if (!(await existe(diario))) {
+        await gravarAtomico(diario, conteudo);
+        await podar(pasta, 'estado-', DIARIOS_MANTIDOS);
+      }
+      const mensal = path.join(pasta, `mensal-${hoje.slice(0, 7)}.json`);
+      if (!(await existe(mensal))) await gravarAtomico(mensal, conteudo);
+    } catch (e) {
+      console.error('[backup]', pasta, e.message);
+    }
+  }
+  // diminuiu? guarda uma foto de antes (no máx. 1 a cada 10 min, salvo se a perda for grande)
+  const a = medir(atual.estado), n = medir(novoEstado);
+  const diminuiu = n.habitos < a.habitos || n.registros < a.registros;
+  const grande = n.habitos < a.habitos || a.registros - n.registros >= 5;
+  if (diminuiu && (grande || Date.now() - ultimaProtecao > 10 * 60_000)) {
+    ultimaProtecao = Date.now();
+    for (const pasta of pastas) {
+      try {
+        await gravarAtomico(path.join(pasta, `protecao-${carimbo()}.json`), conteudo);
+        await podar(pasta, 'protecao-', PROTECOES_MANTIDAS);
+      } catch (e) {
+        console.error('[backup]', e.message);
+      }
+    }
   }
 }
 
 let fila = Promise.resolve();
-function salvarEstado(revCliente, estado) {
+function salvarEstado(revCliente, estado, forcar = false) {
   // serializa gravações para nunca intercalar duas
   const tarefa = fila.then(async () => {
     const atual = await carregarEstado();
-    if (typeof revCliente === 'number' && revCliente !== atual.rev) {
+    if (!forcar && typeof revCliente === 'number' && revCliente !== atual.rev) {
       return { conflito: true, ...atual };
     }
-    await backupDiario();
+    const a = medir(atual.estado), n = medir(estado);
+    if (!forcar && n.habitos === 0 && n.registros === 0 && (a.habitos > 0 || a.registros > 0)) {
+      return { recusado: true, motivo: 'o app tentou gravar um estado vazio por cima dos seus dados; nada foi alterado' };
+    }
+    await fazerBackups(atual, estado);
     const novo = { rev: atual.rev + 1, estado };
-    await gravarAtomico(ARQ_ESTADO, JSON.stringify(novo));
+    const texto = JSON.stringify(novo);
+    await gravarAtomico(ARQ_ESTADO, texto);
     cache = novo;
+    if (PASTA_EXTRA) gravarAtomico(path.join(PASTA_EXTRA, 'estado.json'), texto).catch((e) => console.error('[espelho]', e.message));
     return { conflito: false, rev: novo.rev };
   });
   fila = tarefa.catch(() => {});
@@ -241,7 +314,8 @@ const servidor = http.createServer(async (req, res) => {
     if (rota === '/api/estado' && (req.method === 'PUT' || req.method === 'POST')) {
       const corpo = await lerCorpo(req);
       if (!corpo.estado || typeof corpo.estado !== 'object') return responderJSON(res, 400, { erro: 'estado ausente' });
-      const r = await salvarEstado(corpo.forcar ? undefined : corpo.rev, corpo.estado);
+      const r = await salvarEstado(corpo.rev, corpo.estado, !!corpo.forcar);
+      if (r.recusado) return responderJSON(res, 422, { erro: r.motivo });
       if (r.conflito) return responderJSON(res, 409, { rev: r.rev, estado: r.estado });
       return responderJSON(res, 200, { rev: r.rev });
     }
@@ -266,8 +340,17 @@ const servidor = http.createServer(async (req, res) => {
   }
 });
 
+servidor.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    console.error(`\n  A porta ${PORTA} já está em uso — a Ofensiva provavelmente já está aberta: http://localhost:${PORTA}\n`);
+    process.exit(1);
+  }
+  throw e;
+});
+
 servidor.listen(PORTA, HOST, () => {
   console.log(`\n  🔥 Ofensiva rodando em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORTA}`);
   console.log(`     dados em ${DADOS}`);
+  if (PASTA_EXTRA) console.log(`     espelho/backup extra em ${PASTA_EXTRA}`);
   console.log(`     Claudinho: ${process.env.ANTHROPIC_API_KEY ? 'chave no .env' : 'configure a chave em Ajustes (opcional)'} · modelo ${MODELO}\n`);
 });
