@@ -14,7 +14,7 @@ export const FASES = {
   livre: { titulo: 'Livre', sub: 'cronômetro livre', cor: '#f6c98b', cor2: '#ffe7b8' },
 };
 export const CORES_MATERIA = ['#ff8a7a', '#f6c98b', '#a6dd8f', '#86d0c5', '#8ec5f5', '#b3b3ec', '#d6a6e6', '#f4a3b0', '#f0dc82', '#c9b79c'];
-export const CONFIG_PADRAO = { foco: 25, curta: 5, longa: 15, ciclos: 4, autoIniciar: false, notificar: true, alvo: null };
+export const CONFIG_PADRAO = { foco: 25, curta: 5, longa: 15, ciclos: 4, pausaRapida: 3, autoIniciar: false, notificar: true, alvo: null };
 
 const agora = () => Date.now();
 const temNotif = () => typeof Notification !== 'undefined';
@@ -92,6 +92,7 @@ function registrar(e, minutos, t, desfecho = 'completo') {
     planejadoMin: t.duracaoMs != null ? Math.round(t.duracaoMs / 60000) : null,
     pausadoMin: Math.round(((t.pausasMs || 0) + (t.pausadoEm ? fim - t.pausadoEm : 0)) / 60000),
     pausas: t.pausas || 0,
+    pausasRapidas: t.pausasRapidas || 0,
     materiaNome: materia(t.tag)?.nome || null, // nome na época (se a matéria for apagada/renomeada depois)
   }));
   if (destino) {
@@ -117,8 +118,41 @@ export function pausarOuRetomar() {
   if (!t) return iniciar();
   mudar((e) => {
     const x = e.pomodoro.timer;
-    if (x.pausadoEm) { const p = agora() - x.pausadoEm; x.inicio += p; x.pausasMs = (x.pausasMs || 0) + p; x.pausadoEm = null; } else { x.pausadoEm = agora(); x.pausas = (x.pausas || 0) + 1; }
+    if (x.pausadoEm) { const p = agora() - x.pausadoEm; x.inicio += p; x.pausasMs = (x.pausasMs || 0) + p; x.pausadoEm = null; x.pausaRapidaAte = null; } else { x.pausadoEm = agora(); x.pausas = (x.pausas || 0) + 1; }
   });
+}
+
+/** Pausa rápida (ex.: ir ao banheiro): pausa por alguns minutos e retoma sozinha. */
+export function pausaRapida() {
+  const t = P().timer;
+  if (!t || t.fase === 'curta' || t.fase === 'longa') return;
+  const ms = cfg().pausaRapida * 60000;
+  mudar((e) => {
+    const x = e.pomodoro.timer;
+    const n = agora();
+    if (!x.pausadoEm) { x.pausadoEm = n; x.pausas = (x.pausas || 0) + 1; }
+    x.pausaRapidaAte = n + ms;
+    x.pausasRapidas = (x.pausasRapidas || 0) + 1;
+  });
+}
+let retomando = false;
+/** Fim da pausa rápida: retoma como se tivesse voltado na hora marcada (mesmo se o app ficou fechado). */
+function fimPausaRapida() {
+  if (retomando) return;
+  retomando = true;
+  mudar((e) => {
+    const x = e.pomodoro.timer;
+    if (!x?.pausadoEm || !x.pausaRapidaAte) return;
+    const volta = Math.min(agora(), x.pausaRapidaAte);
+    const p = Math.max(0, volta - x.pausadoEm);
+    x.inicio += p;
+    x.pausasMs = (x.pausasMs || 0) + p;
+    x.pausadoEm = null;
+    x.pausaRapidaAte = null;
+  });
+  retomando = false;
+  if (S.estado.perfil.som !== false) som('ok');
+  avisar('De volta ao foco 🍅');
 }
 export function reiniciarFase() {
   mudar((e) => { const x = e.pomodoro.timer; if (x) { x.inicio = agora(); if (x.pausadoEm) x.pausadoEm = x.inicio; } });
@@ -289,8 +323,15 @@ export function renderFoco() {
 
   // ----- controles -----
   const rodando = t && !t.pausadoEm;
+  const emPausaRapida = !!(t?.pausadoEm && t.pausaRapidaAte);
+  const podeRapida = t && (fase === 'foco' || fase === 'livre') && !emPausaRapida;
+  const avisoRapida = emPausaRapida
+    ? h('div', { class: 'foco-rapida' }, h('span', null, '🚻 pausa rápida'), h('b', { id: 'foco-rapida-tempo' }, mmss(t.pausaRapidaAte - agora())),
+        h('span', { class: 'foco-rapida-sub' }, 'volta sozinho'), h('button', { onClick: pausarOuRetomar }, 'voltar agora'))
+    : null;
   const controles = h('div', { class: 'foco-controles' },
     h('button', { class: 'foco-btn', title: 'Reiniciar esta fase', 'aria-label': 'Reiniciar fase', disabled: !t, onClick: reiniciarFase }, '↺'),
+    h('button', { class: 'foco-btn rapida', title: `Pausa rápida de ${c.pausaRapida} min (banheiro, água…) — retoma sozinha`, 'aria-label': 'Pausa rápida', disabled: !podeRapida, onClick: pausaRapida }, '🚻'),
     h('button', { class: `foco-play ${rodando ? 'rodando' : ''}`, 'aria-label': rodando ? 'Pausar' : 'Começar', title: 'Espaço', onClick: () => (t ? pausarOuRetomar() : iniciar(fase)) },
       svg(rodando ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4.2" height="14" rx="1.4"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.4"/></svg>' : ICONES.play)),
     modoLivre
@@ -326,6 +367,7 @@ export function renderFoco() {
         h('span', { class: 'foco-sub' }, t?.pausadoEm ? 'pausado' : t ? ([materia(tagAtual)?.nome, nomeAssunto(tagAtual, t.assunto)].filter(Boolean).join(' · ') || f.sub) : (nomeAssunto(tagAtual, p.assunto) || 'pronto?')),
         h('span', { class: 'foco-legenda' }, f.sub))),
     ciclos,
+    avisoRapida,
     controles,
     presets,
     tags);
@@ -420,7 +462,7 @@ function painelDeConfig() {
   return h('aside', { class: 'foco-painel' },
     h('div', { class: 'fp-bloco' },
       h('span', { class: 'foco-rot' }, 'tempos (minutos)'),
-      h('div', { class: 'fc-grade' }, num('foco', 'foco', 1, 180), num('curta', 'pausa curta', 1, 60), num('longa', 'pausa longa', 1, 90), num('ciclos', 'focos até a longa', 2, 8)),
+      h('div', { class: 'fc-grade' }, num('foco', 'foco', 1, 180), num('curta', 'pausa curta', 1, 60), num('longa', 'pausa longa', 1, 90), num('ciclos', 'focos até a longa', 2, 8), num('pausaRapida', 'pausa rápida 🚻', 1, 15)),
       h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: c.autoIniciar, onChange: (ev) => mudar((e) => (e.pomodoro.config = { ...cfg(), autoIniciar: ev.target.checked })) }), 'emendar as fases automaticamente'),
       h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: c.notificar, onChange: (ev) => mudar((e) => (e.pomodoro.config = { ...cfg(), notificar: ev.target.checked })) }), 'notificação do sistema no fim de cada fase')),
     h('div', { class: 'fp-bloco' },
@@ -457,7 +499,7 @@ export function renderPilula() {
     h('span', null, t.fase === 'foco' ? tema.marca : t.fase === 'livre' ? '⏱' : '☕'),
     h('b', { id: 'pilula-tempo' }, ''),
     h('span', { class: 'pilula-tag' }, materia(t.tag)?.nome || tituloFase(tema, t.fase)),
-    t.pausadoEm ? h('span', { class: 'pilula-pausa' }, 'pausado') : null));
+    t.pausadoEm ? h('span', { class: 'pilula-pausa', id: t.pausaRapidaAte ? 'pilula-rapida' : null }, t.pausaRapidaAte ? '🚻' : 'pausado') : null));
   tique();
 }
 
@@ -469,6 +511,14 @@ export function tique() {
   if (!t) {
     document.title = TITULO;
     return;
+  }
+  if (t.pausadoEm && t.pausaRapidaAte) {
+    const falta = t.pausaRapidaAte - agora();
+    if (falta <= 0) { fimPausaRapida(); return; }
+    const el = document.getElementById('foco-rapida-tempo');
+    if (el) el.textContent = mmss(falta);
+    const pt = document.getElementById('pilula-rapida');
+    if (pt) pt.textContent = `🚻 ${mmss(falta)}`;
   }
   const livre = t.fase === 'livre';
   const resta = restante(t);
