@@ -253,6 +253,53 @@ async function falarComClaudinho({ contexto, evento, historico }) {
   }
 }
 
+const SISTEMA_HOROSCOPO = `Você escreve o horóscopo chinês do dia num app pessoal de hábitos, a partir dos fatos tradicionais do calendário 干支 que receber (signo da pessoa, pilar do dia, relações entre os ramos como 六合/三合/冲/刑/害 e a interação dos cinco elementos).
+
+Regras:
+- Português do Brasil, tom leve, caloroso e prático. É tradição cultural e diversão, não previsão: nada de promessas, medo ou conselhos médicos/financeiros.
+- Baseie-se só nos fatos recebidos; não invente outras regras astrológicas.
+- Conecte com os hábitos e tarefas da pessoa quando fizer sentido.
+- Responda EXATAMENTE em 4 linhas, sem markdown, cada uma com até 24 palavras:
+Geral: ...
+Foco: ...
+Corpo: ...
+Conselho: ...`;
+
+async function escreverHoroscopo({ fatos, contexto }) {
+  const client = await clienteClaude();
+  if (!client) return { erro: 'sem-chave' };
+  try {
+    const resp = await client.beta.messages.create({
+      model: MODELO,
+      max_tokens: 4000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: 'low' },
+      system: SISTEMA_HOROSCOPO,
+      messages: [{
+        role: 'user',
+        content: `Fatos do dia (JSON):\n${JSON.stringify(fatos ?? {}).slice(0, 6000)}\n\nHábitos e tarefas de hoje (JSON):\n${JSON.stringify(contexto ?? {}).slice(0, 4000)}`,
+      }],
+    });
+    if (resp.stop_reason === 'refusal') return { erro: 'recusa' };
+    const texto = resp.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+    const leitura = {};
+    for (const linha of texto.split('\n')) {
+      const m = linha.trim().replace(/^\*+|\*+$/g, '').match(/^(Geral|Foco|Corpo|Conselho)\s*:\s*(.+)$/i);
+      if (m) leitura[m[1].toLowerCase()] = m[2].replace(/\*+/g, '').trim();
+    }
+    return leitura.geral ? { leitura } : { erro: 'formato' };
+  } catch (e) {
+    if (e instanceof Anthropic.AuthenticationError) return { erro: 'chave-invalida' };
+    if (e instanceof Anthropic.RateLimitError) return { erro: 'limite' };
+    if (e instanceof Anthropic.APIError) {
+      console.error('[horoscopo] erro da API', e.status, e.message);
+      return { erro: 'api' };
+    }
+    return { erro: 'rede' };
+  }
+}
+
 // ---------- http ----------
 
 function responderJSON(res, status, obj) {
@@ -322,6 +369,10 @@ const servidor = http.createServer(async (req, res) => {
     if (rota === '/api/claudinho' && req.method === 'POST') {
       const corpo = await lerCorpo(req, 256 * 1024);
       return responderJSON(res, 200, await falarComClaudinho(corpo));
+    }
+    if (rota === '/api/horoscopo' && req.method === 'POST') {
+      const corpo = await lerCorpo(req, 256 * 1024);
+      return responderJSON(res, 200, await escreverHoroscopo(corpo));
     }
     if (rota === '/api/chave' && req.method === 'POST') {
       const { chave } = await lerCorpo(req, 16 * 1024);

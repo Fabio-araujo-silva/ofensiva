@@ -8,6 +8,7 @@ import {
 } from './habitos.js';
 import { S, carregar, definirRender, render, mudar, avisar, temPendencia } from './store.js';
 import { proverbioDoDia } from './proverbios.js';
+import { horoscopoDoDia, leituraOffline } from './horoscopo.js';
 import { iniciarClaudinho, reagir, mostrarClaudinho } from './claudinho.js';
 import { confete, som, celebrarOfensiva } from './efeitos.js';
 import { abrirOnboarding } from './onboarding.js';
@@ -29,6 +30,7 @@ function renderTudo() {
   renderTopo();
   renderOfensiva();
   renderProverbio();
+  renderHoroscopo();
   renderRegistro();
   renderTodos();
   renderAno();
@@ -162,6 +164,101 @@ function renderProverbio() {
     h('p', { class: 'pv-lit borravel', onClick: revelar }, `“${p.lit}”`),
     h('p', { class: 'pv-sent borravel', onClick: revelar }, p.sent),
     h('p', { class: 'pv-vida' }, h('b', null, 'pra levar pra vida'), p.vida)
+  );
+}
+
+// =====================================================================
+// horóscopo chinês do dia
+// =====================================================================
+const COR_ELEMENTO = { madeira: '#8fd18f', fogo: '#ff8a65', terra: '#d9b26f', metal: '#cfd6e0', 'água': '#7fb7ff' };
+const COR_TOM = { 'favorável': '#8fdc8f', 'atenção': '#ff8a7a', misto: '#f6c98b', neutro: '#a1a1ad' };
+let horoscopoPedido = null; // dia+nascimento já pedido ao Claude (evita repetir)
+
+function fatosHoroscopo(hz) {
+  return {
+    signo: { pilar: hz.signo.hanzi, nome: hz.signo.nome, anoAstrologico: hz.signo.anoAstro, tracos: hz.signo.tracos },
+    dia: { data: S.hoje, pilar: hz.dia.hanzi, pinyin: hz.dia.pinyin, nome: hz.dia.nome },
+    relacoesEntreRamos: hz.ramos.map((r) => `${r.zh} (${r.nome}): ${r.texto}`),
+    cincoElementos: `${hz.elementos.zh}, ${hz.elementos.nome}: ${hz.elementos.texto}`,
+    tomDoDia: hz.tom,
+    notaDe1a5: hz.nota,
+    anoChines: `${hz.ano.nome} ${hz.ano.hanzi}`,
+  };
+}
+
+async function pedirHoroscopo(hz, nasc) {
+  const dia = S.hoje;
+  horoscopoPedido = dia + nasc;
+  try {
+    const r = await fetch('/api/horoscopo', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fatos: fatosHoroscopo(hz), contexto: contextoClaudinho() }),
+    });
+    const j = await r.json();
+    if (j.leitura && S.hoje === dia && S.estado.perfil.nascimento === nasc) mudar((e) => (e.horoscopo = { dia, nasc, leitura: j.leitura }));
+  } catch {
+    /* fica a leitura offline */
+  }
+}
+
+function renderHoroscopo() {
+  const raiz = $('#horoscopo');
+  const nasc = S.estado.perfil.nascimento;
+  const selo = (txt) => h('div', { class: 'pv-selo' }, h('span', { class: 'carimbo' }, '生肖'), h('span', { class: 'rotulo' }, txt));
+  if (!nasc) {
+    const data = h('input', { type: 'date', class: 'entrada', max: S.hoje, min: '1900-01-01', 'aria-label': 'Data de nascimento' });
+    raiz.replaceChildren(
+      h('div', { class: 'hs-topo' }, selo('horóscopo chinês do dia')),
+      h('div', { class: 'hs-vazio' },
+        h('div', { class: 'hs-roda' }, ['🐀', '🐂', '🐅', '🐇', '🐉', '🐍', '🐎', '🐐', '🐒', '🐓', '🐕', '🐖'].map((a) => h('span', null, a))),
+        h('p', null, 'Qual é a sua data de nascimento? Com ela eu descubro seu animal e elemento no zodíaco chinês e leio como o dia de hoje conversa com você.'),
+        h('div', { class: 'linha' }, data, h('button', { class: 'btn-primario', onClick: () => data.value && mudar((e) => (e.perfil.nascimento = data.value)) }, 'Ver meu horóscopo'))));
+    return;
+  }
+
+  const hz = horoscopoDoDia(nasc, S.hoje);
+  const salvo = S.estado.horoscopo;
+  const doClaude = salvo && salvo.dia === S.hoje && salvo.nasc === nasc ? salvo.leitura : null;
+  const leitura = doClaude || leituraOffline(hz);
+  if (!doClaude && S.claude.configurada && horoscopoPedido !== S.hoje + nasc) pedirHoroscopo(hz, nasc);
+
+  const s = hz.signo, d = hz.dia;
+  const bolinhas = h('span', { class: 'hs-nota', title: `energia do dia: ${hz.nota} de 5` }, [1, 2, 3, 4, 5].map((i) => h('i', { class: i <= hz.nota ? 'on' : '' })));
+  const elem = (nome, zh) => h('span', { class: 'hs-el', style: { '--e': COR_ELEMENTO[nome] } }, `${zh} ${nome}`);
+  const fonte = doClaude
+    ? '✦ leitura escrita pelo Claudinho a partir do calendário'
+    : S.claude.configurada ? 'o Claudinho está escrevendo a leitura de hoje…' : 'leitura offline · com chave da API, o Claudinho escreve uma personalizada';
+
+  raiz.replaceChildren(
+    h('div', { class: 'hs-topo' },
+      selo(`horóscopo chinês · ${dataCurta(S.hoje)}`),
+      h('div', { class: 'hs-tom', style: { '--t': COR_TOM[hz.tom] } }, h('span', null, hz.tom), bolinhas)),
+    h('div', { class: 'hs-grade' },
+      h('div', { class: 'hs-bloco hs-signo' },
+        h('span', { class: 'rotulo' }, 'seu signo'),
+        h('div', { class: 'hs-animal' }, h('span', { class: 'hs-emoji' }, s.emoji), h('span', { class: 'hs-zh', lang: 'zh-CN' }, s.animalZh)),
+        h('b', { class: 'hs-nome' }, s.nome),
+        h('span', { class: 'hs-pilar' }, h('span', { lang: 'zh-CN' }, s.hanzi), ` · ${s.pinyin} · ano ${s.anoAstro}`),
+        h('div', { class: 'hs-tracos' }, s.tracos.map((t) => h('span', null, t)))),
+      h('div', { class: 'hs-bloco hs-dia' },
+        h('span', { class: 'rotulo' }, 'hoje é dia do'),
+        h('div', { class: 'hs-animal' }, h('span', { class: 'hs-emoji' }, d.emoji), h('span', { class: 'hs-zh', lang: 'zh-CN' }, `${d.hanzi}日`)),
+        h('b', { class: 'hs-nome' }, d.nome),
+        h('span', { class: 'hs-pilar' }, d.pinyin),
+        h('div', { class: 'hs-rels' },
+          hz.ramos.length
+            ? hz.ramos.map((r) => h('span', { class: `hs-rel ${r.tom}`, title: r.texto }, h('b', { lang: 'zh-CN' }, r.zh), r.nome))
+            : h('span', { class: 'hs-rel neutro', title: 'Sem relação tradicional forte entre os dois animais' }, h('b', null, '—'), 'sem relação forte com o seu animal'),
+          h('span', { class: 'hs-rel elementos', title: hz.elementos.texto }, elem(d.elemento, d.elementoZh), '→', elem(s.elemento, s.elementoZh), hz.elementos.nome))),
+      h('div', { class: 'hs-bloco hs-leitura' },
+        [['Geral', leitura.geral], ['Foco', leitura.foco], ['Corpo', leitura.corpo], ['Conselho', leitura.conselho]]
+          .filter(([, t]) => t).map(([k, t]) => h('p', null, h('b', null, k), t)),
+        h('span', { class: 'hs-fonte' }, fonte))),
+    h('div', { class: 'hs-pe' },
+      `Ano chinês: ${hz.ano.emoji} `, h('span', { lang: 'zh-CN' }, hz.ano.hanzi), ` ${hz.ano.nome}`,
+      hz.relAno.length ? ` · com o seu ${s.animal}: ${hz.relAno.map((r) => `${r.zh} ${r.nome}`).join(', ')}` : '',
+      s.limiar || s.antesDoAnoNovo ? h('span', { class: 'hs-nota-ano' }, ' · o signo vira no 立春 (~4/fev); quem nasceu em jan/fev pode ter outro animal pelo Ano Novo Lunar') : null)
   );
 }
 

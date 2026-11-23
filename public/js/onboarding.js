@@ -11,6 +11,7 @@ export function abrirOnboarding() {
   const st = {
     passo: 0,
     nome: e.perfil.nome || '',
+    nascimento: e.perfil.nascimento || '',
     // escolhidos: lista de modelos (cópias editáveis). chave = sugestaoId ou id local
     escolhidos: [],
   };
@@ -36,12 +37,15 @@ export function abrirOnboarding() {
   function passo0() {
     const nome = h('input', { class: 'onb-nome', placeholder: 'Como posso te chamar?', value: st.nome, maxlength: '30', onInput: (ev) => (st.nome = ev.target.value) });
     nome.addEventListener('keydown', (ev) => ev.key === 'Enter' && ir(1));
+    const nasc = h('input', { type: 'date', class: 'entrada', value: st.nascimento || '', max: hojeISO(), min: '1900-01-01', 'aria-label': 'Data de nascimento', onInput: (ev) => (st.nascimento = ev.target.value) });
     caixa.replaceChildren(passos(),
       h('div', { class: 'onb-centro onb-heroi' },
         h('span', { class: 'fogo aceso vivo', html: ICONES.fogo }),
         h('h1', null, 'Bem-vindo à Ofensiva'),
         h('p', { class: 'sub' }, 'Escolha os hábitos que importam pra você, registre um pouquinho todo dia e veja o ano inteiro ficar colorido. Cada dia cumprido mantém a chama acesa.'),
-        nome));
+        nome,
+        h('label', { class: 'campo', style: { alignItems: 'center' } },
+          h('span', { class: 'ajuda' }, 'Data de nascimento (opcional, para o horóscopo chinês do dia)'), nasc)));
     barra.replaceChildren(h('button', { class: 'btn-primario', onClick: () => ir(1) }, 'Começar ', svg(ICONES.dir)));
     setTimeout(() => nome.focus(), 50);
   }
@@ -149,6 +153,7 @@ export function abrirOnboarding() {
     const hoje = hojeISO();
     mudar((est) => {
       est.perfil.nome = st.nome.trim();
+      if (st.nascimento) est.perfil.nascimento = st.nascimento;
       const existentes = new Set(est.habitos.map((x) => x.nome.toLowerCase()));
       for (const x of st.escolhidos) {
         if (existentes.has(x.nome.trim().toLowerCase())) continue; // refazendo onboarding: não duplica

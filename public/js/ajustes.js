@@ -4,7 +4,7 @@ import { S, mudar, render, abrirModal, avisar, botaoConfirmar } from './store.js
 import { TIPOS, PALETA, instanciar, descricaoMeta, normalizar } from './habitos.js';
 import { SUGESTOES, modeloVazio } from './sugestoes.js';
 
-const EMOJIS = ['💧', '👟', '📚', '🏋️', '📖', '😴', '🧘', '🗣️', '💻', '🥗', '✍️', '🤸', '🇨🇳', '🎸', '🧠', '🏃', '🚴', '🍎', '☀️', '🧹', '💊', '📵', '🎨', '⭐'];
+const EMOJIS = ['💧', '👟', '📚', '🏋️', '📖', '😴', '🧘', '🗣️', '💻', '🥗', '✍️', '🤸', '🏮', '🎸', '🧠', '🏃', '🚴', '🍎', '☀️', '🧹', '💊', '📵', '🎨', '⭐'];
 
 // =====================================================================
 // editor de hábito (criar / editar)
@@ -219,7 +219,10 @@ export function abrirAjustes() {
       h('div', { class: 'bloco' },
         h('h4', null, 'Você'),
         h('div', { class: 'campo' }, h('label', null, 'Como o Claudinho te chama'),
-          h('input', { type: 'text', value: e.perfil.nome, maxlength: '30', placeholder: 'seu nome ou apelido', onChange: (ev) => mudar((st) => (st.perfil.nome = ev.target.value.trim())) }))),
+          h('input', { type: 'text', value: e.perfil.nome, maxlength: '30', placeholder: 'seu nome ou apelido', onChange: (ev) => mudar((st) => (st.perfil.nome = ev.target.value.trim())) })),
+        h('div', { class: 'campo' }, h('label', null, 'Data de nascimento (para o horóscopo chinês)'),
+          h('input', { type: 'date', class: 'entrada', value: e.perfil.nascimento || '', max: hojeISO(), min: '1900-01-01', onChange: (ev) => mudar((st) => (st.perfil.nascimento = ev.target.value || '')) })),
+        h('p', { class: 'ajuda' }, 'O signo chinês vira no 立春 (~4 de fevereiro), como na astrologia BaZi. Deixe em branco para esconder a leitura.')),
 
       h('div', { class: 'bloco' },
         h('h4', null, 'Ofensiva geral'),
