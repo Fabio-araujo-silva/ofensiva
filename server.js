@@ -77,8 +77,19 @@ const existe = (arq) => fs.access(arq).then(() => true, () => false);
 function medir(estado) {
   let registros = 0;
   for (const d of Object.values(estado?.dias || {})) registros += Object.keys(d || {}).length;
-  return { habitos: (estado?.habitos || []).length, registros };
+  let assuntos = 0, subtopicos = 0, vistos = 0;
+  for (const m of estado?.materias || []) {
+    for (const a of m.assuntos || []) {
+      assuntos++;
+      for (const st of a.subtopicos || []) { subtopicos++; if (st.visto) vistos++; }
+    }
+  }
+  const n = (k) => (Array.isArray(estado?.[k]) ? estado[k].length : 0);
+  return { habitos: n('habitos'), registros, materias: n('materias'), assuntos, subtopicos, vistos, semanais: n('semanais'), todos: n('todos'), sessoes: n('sessoes') };
 }
+const total = (m) => Object.values(m).reduce((a, b) => a + b, 0);
+/** Quantos "itens" sumiram de um estado para o outro (só conta o que diminuiu). */
+const perda = (a, n) => Object.keys(a).reduce((s, k) => s + Math.max(0, a[k] - n[k]), 0);
 
 async function podar(pasta, prefixo, manter) {
   const arqs = (await fs.readdir(pasta)).filter((f) => f.startsWith(prefixo)).sort();
@@ -88,7 +99,11 @@ async function podar(pasta, prefixo, manter) {
 let cache = null; // { rev, estado }
 async function carregarEstado() {
   if (cache) return cache;
-  if (!(await existe(ARQ_ESTADO))) return (cache = { rev: 0, estado: null });
+  if (!(await existe(ARQ_ESTADO))) {
+    // sem estado.json mas com backups? (arquivo apagado/movido) — recupera em vez de começar do zero
+    const recuperado = await recuperarDoBackup('estado.json não encontrado');
+    return (cache = recuperado || { rev: 0, estado: null });
+  }
   try {
     cache = JSON.parse(await fs.readFile(ARQ_ESTADO, 'utf8'));
     return cache;
@@ -97,20 +112,27 @@ async function carregarEstado() {
     const separado = path.join(DADOS, `estado.corrompido-${carimbo()}.json`);
     await fs.rename(ARQ_ESTADO, separado).catch(() => {});
     console.error(`[dados] estado.json ilegível (${e.message}); guardado em ${separado}`);
-    const backups = (await fs.readdir(PASTA_BACKUP).catch(() => []))
-      .filter((f) => /^(estado|protecao|mensal)-/.test(f))
-      .map((f) => path.join(PASTA_BACKUP, f));
-    const comData = await Promise.all(backups.map(async (f) => ({ f, t: (await fs.stat(f)).mtimeMs })));
-    for (const { f } of comData.sort((a, b) => b.t - a.t)) {
-      try {
-        cache = JSON.parse(await fs.readFile(f, 'utf8'));
-        await gravarAtomico(ARQ_ESTADO, JSON.stringify(cache));
-        console.error(`[dados] recuperado de ${f}`);
-        return cache;
-      } catch {}
-    }
+    const recuperado = await recuperarDoBackup('estado.json ilegível');
+    if (recuperado) return (cache = recuperado);
     throw new Error('estado.json ilegível e nenhum backup válido — nada foi apagado, veja a pasta dados/');
   }
+}
+
+async function recuperarDoBackup(motivo) {
+  const backups = (await fs.readdir(PASTA_BACKUP).catch(() => []))
+    .filter((f) => /^(estado|protecao|mensal)-/.test(f))
+    .map((f) => path.join(PASTA_BACKUP, f));
+  const comData = await Promise.all(backups.map(async (f) => ({ f, t: (await fs.stat(f)).mtimeMs })));
+  for (const { f } of comData.sort((a, b) => b.t - a.t)) {
+    try {
+      const dados = JSON.parse(await fs.readFile(f, 'utf8'));
+      if (!dados?.estado) continue;
+      await gravarAtomico(ARQ_ESTADO, JSON.stringify(dados));
+      console.error(`[dados] ${motivo}: recuperado de ${f}`);
+      return dados;
+    } catch {}
+  }
+  return null;
 }
 
 let ultimaProtecao = 0;
@@ -135,8 +157,9 @@ async function fazerBackups(atual, novoEstado) {
   }
   // diminuiu? guarda uma foto de antes (no máx. 1 a cada 10 min, salvo se a perda for grande)
   const a = medir(atual.estado), n = medir(novoEstado);
-  const diminuiu = n.habitos < a.habitos || n.registros < a.registros;
-  const grande = n.habitos < a.habitos || a.registros - n.registros >= 5;
+  const p = perda(a, n);
+  const diminuiu = p > 0;
+  const grande = n.habitos < a.habitos || n.materias < a.materias || n.assuntos < a.assuntos || p >= 5;
   if (diminuiu && (grande || Date.now() - ultimaProtecao > 10 * 60_000)) {
     ultimaProtecao = Date.now();
     for (const pasta of pastas) {
@@ -159,7 +182,7 @@ function salvarEstado(revCliente, estado, forcar = false) {
       return { conflito: true, ...atual };
     }
     const a = medir(atual.estado), n = medir(estado);
-    if (!forcar && n.habitos === 0 && n.registros === 0 && (a.habitos > 0 || a.registros > 0)) {
+    if (!forcar && total(n) === 0 && total(a) > 0) {
       return { recusado: true, motivo: 'o app tentou gravar um estado vazio por cima dos seus dados; nada foi alterado' };
     }
     await fazerBackups(atual, estado);

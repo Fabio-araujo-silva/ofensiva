@@ -1,6 +1,6 @@
 // Ajustes, editor de hábito e "novo hábito".
 import { h, svg, ICONES, uid, numeroLivre, hojeISO } from './util.js';
-import { S, mudar, render, abrirModal, avisar, botaoConfirmar } from './store.js';
+import { S, mudar, render, abrirModal, avisar, botaoConfirmar, copiaRecuperavel, restaurarRecuperavel, descartarRecuperavel } from './store.js';
 import { TIPOS, PALETA, instanciar, descricaoMeta, normalizar } from './habitos.js';
 import { SUGESTOES, modeloVazio } from './sugestoes.js';
 
@@ -197,7 +197,7 @@ export function abrirAjustes() {
         mudar((st) => {
           st.habitos = st.habitos.filter((y) => y.id !== x.id);
           for (const d of Object.keys(st.dias)) { delete st.dias[d][x.id]; if (!Object.keys(st.dias[d]).length) delete st.dias[d]; }
-        });
+        }, { forcar: true });
         desenhar();
       }, 'btn-texto btn-perigo'));
 
@@ -248,6 +248,18 @@ export function abrirAjustes() {
         S.claude.configurada && h('div', null, botaoConfirmar('remover chave salva no app', 'clique de novo para remover', () => salvarChave(''), 'btn-texto btn-perigo')),
         h('p', { class: 'ajuda' }, `A chave fica só neste computador (dados/segredos.json ou .env) e as chamadas saem do servidor local. Modelo: ${S.claude.modelo || 'claude-opus-5-5'}. Sem chave, o Claudinho usa frases prontas.`)),
 
+      (() => {
+        const c = copiaRecuperavel();
+        if (!c?.estado) return null;
+        const q = new Date(c.quando);
+        return h('div', { class: 'bloco', style: { borderColor: 'rgba(255, 154, 60, .5)' } },
+          h('h4', null, 'Recuperar alterações'),
+          h('p', { class: 'ajuda' }, `Tem uma versão guardada no navegador de ${q.toLocaleString('pt-BR')} (${c.motivo || 'não salva'}): ${c.estado.habitos?.length || 0} hábitos, ${Object.keys(c.estado.dias || {}).length} dias registrados, ${c.estado.materias?.length || 0} matérias. Restaurar troca os dados atuais por ela (os atuais ficam no backup de proteção do servidor).`),
+          h('div', { class: 'linha' },
+            botaoConfirmar('restaurar esta versão', 'clique de novo para restaurar', () => { restaurarRecuperavel(); desenhar(); }, 'btn-secundario'),
+            botaoConfirmar('descartar', 'descartar mesmo?', () => { descartarRecuperavel(); desenhar(); }, 'btn-texto btn-perigo')));
+      })(),
+
       h('div', { class: 'bloco' },
         h('h4', null, 'Backup'),
         h('div', { class: 'linha' },
@@ -279,7 +291,7 @@ async function importar(ev) {
   try {
     const dados = JSON.parse(await arq.text());
     if (!Array.isArray(dados.habitos) || typeof dados.dias !== 'object') throw new Error();
-    mudar((st) => Object.assign(st, normalizar(dados)));
+    mudar((st) => Object.assign(st, normalizar(dados)), { forcar: true });
     avisar('Backup importado!');
     render();
   } catch {
