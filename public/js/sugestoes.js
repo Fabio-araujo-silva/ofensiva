@@ -63,6 +63,12 @@ export const SUGESTOES = [
     itens: [{ nome: 'Fruta' }, { nome: 'Verdura' }, { nome: 'Sem doce' }],
   },
   {
+    sugestaoId: 'dieta', nome: 'Dieta', emoji: '🍽️', cor: '#a6dd8f', tipo: 'numero',
+    descricao: 'Digite quantas calorias comeu no dia — ficar dentro do limite mantém a ofensiva.',
+    combinar: 'max',
+    metricas: [{ id: 'kcal', nome: 'Calorias', meta: 2000, unidade: 'kcal', passos: [], limite: true, digitar: true }],
+  },
+  {
     sugestaoId: 'diario', nome: 'Escrever no diário', emoji: '✍️', cor: '#f7a98b', tipo: 'simnao',
     descricao: 'Algumas linhas sobre o dia.',
     permiteDescanso: false, tags: [],

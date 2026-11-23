@@ -391,9 +391,39 @@ function cardHabito(hab) {
 }
 
 // ---------- tipo número ----------
+/** Métrica de "digitar o total do dia" (ex.: kcal): um campo direto, sem botões de + e −. */
+function metricaDigitada(hab, m, val) {
+  const inp = h('input', {
+    class: 'valor-input total', type: 'text', inputmode: 'decimal', placeholder: S.dia === S.hoje ? 'quanto foi hoje?' : 'quanto foi?',
+    value: val ? String(val).replace('.', ',') : '', 'aria-label': `${m.nome} do dia`,
+  });
+  inp.dataset.campo = `total-${hab.id}-${m.id}-${S.dia}`;
+  const salvar = () => {
+    const txt = inp.value.trim();
+    const n = txt === '' ? 0 : numeroLivre(txt);
+    if (n == null || n < 0) { inp.value = val ? String(val).replace('.', ',') : ''; return; }
+    if (n !== val) definir(hab, (o) => ({ ...o, [m.id]: n }));
+  };
+  inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') { inp.value = val ? String(val).replace('.', ',') : ''; inp.blur(); } });
+  inp.addEventListener('blur', salvar);
+  const sobra = m.meta - val;
+  const status = !val ? null
+    : m.limite
+      ? sobra >= 0 ? h('span', { class: 'met-status ok' }, `dentro · sobram ${fmtMetrica(sobra, m)}`) : h('span', { class: 'met-status passou' }, `passou ${fmtMetrica(-sobra, m)}`)
+      : sobra > 0 ? h('span', { class: 'met-status' }, `faltam ${fmtMetrica(sobra, m)}`) : h('span', { class: 'met-status ok' }, 'meta batida');
+  const barra = barraAnimada(Math.min(val / m.meta, 1), `${hab.id}|${m.id}|${S.dia}`);
+  if (m.limite && val > m.meta) barra.classList.add('passou');
+  return h('div', { class: 'met' },
+    hab.metricas.length > 1 && h('div', { class: 'met-nome' }, m.nome),
+    h('div', { class: 'met-val' }, inp, h('span', { class: 'met-meta' }, `/ ${m.limite ? 'até ' : ''}${fmtMetrica(m.meta, m)}`), status),
+    barra,
+    m.dica && h('div', { class: 'dica-hab' }, m.dica));
+}
+
 function corpoNumero(hab, v) {
   return hab.metricas.map((m) => {
     const val = Number(v?.[m.id]) || 0;
+    if (m.digitar) return metricaDigitada(hab, m, val);
     const passos = (m.passos?.length ? m.passos : [1]).filter((x) => x > 0);
     const somar = (q) => definir(hab, (o) => ({ ...o, [m.id]: Math.max(0, Math.round(((Number(o[m.id]) || 0) + q) * 100) / 100) }));
     const emHoras = m.unidade === 'min' && m.meta >= 60;

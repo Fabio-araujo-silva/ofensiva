@@ -77,6 +77,8 @@ function configTipo(w, desenhar) {
           type: 'text', value: (m.menos || []).join('; ').replace(/\./g, ','), placeholder: 'vazio = o 1º botão de +',
           onInput: (e) => (m.menos = e.target.value.split(';').map((x) => numeroLivre(x)).filter((x) => x > 0)),
         })),
+        h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.limite, onChange: (e) => (m.limite = e.target.checked) }), 'a meta é um teto (no máximo — ex.: calorias)'),
+        h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.digitar, onChange: (e) => (m.digitar = e.target.checked) }), 'digitar o total do dia (sem botões)'),
         h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.decimal, onChange: (e) => (m.decimal = e.target.checked) }), 'aceita decimais'),
         h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.cronometro, onChange: (e) => (m.cronometro = e.target.checked) }), 'cronômetro (unidade min)')));
     return h('div', { class: 'bloco' },

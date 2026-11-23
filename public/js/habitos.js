@@ -32,7 +32,7 @@ export function progresso(h, v) {
   if (!v) return { p: 0, descanso: false, reg: false };
   switch (h.tipo) {
     case 'numero': {
-      const rs = h.metricas.map((m) => Math.min((Number(v[m.id]) || 0) / (m.meta || 1), 1));
+      const rs = h.metricas.map((m) => razaoMetrica(m, Number(v[m.id]) || 0));
       const p = rs.length === 0 ? 0 : h.combinar === 'media' ? rs.reduce((a, b) => a + b, 0) / rs.length : Math.max(...rs);
       return { p, descanso: false, reg: h.metricas.some((m) => (Number(v[m.id]) || 0) > 0) };
     }
@@ -49,6 +49,17 @@ export function progresso(h, v) {
     default:
       return { p: 0, descanso: false, reg: false };
   }
+}
+
+/**
+ * Quanto uma métrica cumpre a meta (0..1).
+ * Meta normal: chegar lá. Meta-teto (`limite`, ex.: até 2.000 kcal): registrou e ficou
+ * dentro = 100%; passou, cai na proporção (2.500 de 2.000 → 80%). Sem registro = 0.
+ */
+export function razaoMetrica(m, val) {
+  const meta = m.meta || 1;
+  if (m.limite) return val <= 0 ? 0 : val <= meta ? 1 : meta / val;
+  return Math.min(val / meta, 1);
 }
 
 export const valorDe = (e, h, dia) => e.dias[dia]?.[h.id];
@@ -163,7 +174,7 @@ export function descricaoMeta(h) {
       const partes = h.metricas.map((m) => {
         const nome = (m.nome || '').toLowerCase();
         const redundante = !nome || (m.unidade && nome.startsWith(m.unidade.toLowerCase().replace('.', '')));
-        return fmtMetrica(m.meta, m) + (h.metricas.length > 1 && !redundante ? ` de ${nome}` : '');
+        return (m.limite ? 'até ' : '') + fmtMetrica(m.meta, m) + (h.metricas.length > 1 && !redundante ? ` de ${nome}` : '');
       });
       return partes.join(h.combinar === 'media' ? ' + ' : ' ou ') + ' por dia';
     }
@@ -183,7 +194,11 @@ export function detalheValor(h, v) {
   if (!v) return 'nada registrado';
   switch (h.tipo) {
     case 'numero':
-      return h.metricas.map((m) => `${h.metricas.length > 1 ? m.nome + ': ' : ''}${fmtMetrica(Number(v[m.id]) || 0, m)} de ${fmtMetrica(m.meta, m)}`).join(' · ');
+      return h.metricas.map((m) => {
+        const val = Number(v[m.id]) || 0;
+        const fim = m.limite ? ` (limite ${fmtMetrica(m.meta, m)}${val > m.meta ? `, passou ${fmtMetrica(val - m.meta, m)}` : ''})` : ` de ${fmtMetrica(m.meta, m)}`;
+        return `${h.metricas.length > 1 ? m.nome + ': ' : ''}${fmtMetrica(val, m)}${fim}`;
+      }).join(' · ');
     case 'checklist': {
       const feitos = h.itens.filter((i) => v[i.id]).map((i) => i.nome);
       return feitos.length ? `feito: ${feitos.join(', ')}` : 'nada marcado';

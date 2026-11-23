@@ -8,7 +8,7 @@ Rastreador de hábitos **local**, em tema escuro, com ofensivas no estilo Duolin
 
 - **Onboarding**: cada pessoa monta os próprios hábitos. Dá pra partir de sugestões (água, passos, estudo, treino, leitura, sono, meditação, idioma, projeto pessoal…) e ajustar as metas, ou criar do zero.
 - **4 tipos de hábito**:
-  - **Número com meta**: água em ml, passos, minutos de estudo, horas de sono. Tem botões de `+`, valor exato com um clique e cronômetro opcional. Aceita métricas alternativas (ex.: *ler 2 páginas **ou** ouvir 10 min de audiobook*).
+  - **Número com meta**: água em ml, passos, minutos de estudo, horas de sono. Tem botões de `+`, valor exato com um clique e cronômetro opcional. Aceita métricas alternativas (ex.: *ler 2 páginas **ou** ouvir 10 min de audiobook*). A meta também pode ser um **teto** com o total **digitado** do dia (ex.: dieta de *até 2.000 kcal*: ficou dentro, conta; passou, a barra fica vermelha e a ofensiva não fecha).
   - **Checklist**: um hábito com várias partes (ex.: idioma = app + flashcards + leitura). Quanto mais você marca, mais colorido fica o dia.
   - **Sim ou não**: com etiquetas opcionais (ex.: Push/Pull/Legs) e **dia de descanso**, que não quebra a ofensiva.
   - **Níveis**: nada / um pouco / tudo, com campo de anotação.

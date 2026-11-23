@@ -252,6 +252,12 @@ h2.secao { font-size: 22px; font-weight: 900; margin: 0; letter-spacing: -.01em;
 .valor-btn:hover { border-color: var(--borda-forte); }
 .valor-input { width: 120px; font-size: 22px; font-weight: 900; background: var(--painel2); border: 1px solid var(--c); border-radius: 8px; padding: 2px 8px; }
 .met-meta { color: var(--suave); font-weight: 700; }
+.valor-input.total { width: 130px; }
+.valor-input.total::placeholder { font-size: 14px; font-weight: 700; color: var(--suave); }
+.met-status { font-size: 12px; font-weight: 800; color: var(--suave); margin-left: auto; }
+.met-status.ok { color: color-mix(in srgb, var(--c) 80%, white); }
+.met-status.passou { color: #ef8a8a; }
+.met .barra.passou > div { background: linear-gradient(90deg, #c95b5b, #ef8a8a); box-shadow: none; }
 .barra { height: 8px; background: var(--vazio); border-radius: 999px; overflow: hidden; }
 .barra > div { height: 100%; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 70%, #000), var(--c)); border-radius: inherit; transition: width .75s cubic-bezier(.22, 1, .36, 1); }
 .barra.cheia > div { background: var(--c); box-shadow: 0 0 10px color-mix(in srgb, var(--c) 60%, transparent); }
