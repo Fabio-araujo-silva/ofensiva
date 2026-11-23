@@ -199,6 +199,24 @@ export function detalheValor(h, v) {
   }
 }
 
+const DIAS_SEMANA = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
+const hhmm = (ms) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+/**
+ * Campos derivados de uma sessão de estudo, para estatísticas (horário x dia da semana etc.).
+ * Preenche o que faltar sem mexer no que já existe — serve para sessões antigas também.
+ */
+export function detalharSessao(s) {
+  if (!s || typeof s !== 'object' || !s.inicio) return s;
+  const ini = new Date(s.inicio);
+  if (s.diaSemana == null) s.diaSemana = (ini.getDay() + 6) % 7; // 0 = segunda … 6 = domingo
+  if (!s.diaSemanaNome) s.diaSemanaNome = DIAS_SEMANA[s.diaSemana];
+  if (!s.horaInicio) s.horaInicio = hhmm(s.inicio);
+  if (!s.horaFim && s.fim) s.horaFim = hhmm(s.fim);
+  if (s.hora == null) s.hora = ini.getHours(); // hora cheia, p/ agrupar por faixa do dia
+  if (!s.desfecho) s.desfecho = s.tipo === 'livre' ? 'livre' : 'completo';
+  return s;
+}
+
 /** Deixa um estado antigo/incompleto no formato atual. */
 export function normalizar(e) {
   e = e && typeof e === 'object' ? e : {};
@@ -212,7 +230,7 @@ export function normalizar(e) {
   e.semanais = Array.isArray(e.semanais) ? e.semanais : [];
   e.materias = Array.isArray(e.materias) ? e.materias : [];
   for (const m of e.materias) m.assuntos = Array.isArray(m.assuntos) ? m.assuntos : [];
-  e.sessoes = Array.isArray(e.sessoes) ? e.sessoes : [];
+  e.sessoes = Array.isArray(e.sessoes) ? e.sessoes.map(detalharSessao) : [];
   e.pomodoro = { config: {}, timer: null, ciclo: 0, cicloDia: null, proxima: 'foco', tag: null, assunto: null, ...(e.pomodoro || {}) };
   return e;
 }

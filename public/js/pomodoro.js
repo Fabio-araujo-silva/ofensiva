@@ -2,7 +2,7 @@
 // cada sessão de foco é registrada com a matéria e os minutos somam no hábito de estudo.
 import { h, svg, ICONES, uid, pad, somaDias, inicioSemana, LETRAS_SEMANA, clamp } from './util.js';
 import { S, mudar, avisar, botaoConfirmar } from './store.js';
-import { ativos, fmtMetrica } from './habitos.js';
+import { ativos, fmtMetrica, detalharSessao } from './habitos.js';
 import { som } from './efeitos.js';
 import { reagir } from './claudinho.js';
 import { TEMAS, temaDe, particulas } from './temas.js';
@@ -75,12 +75,25 @@ export function alvoPomodoro(e = S.estado) {
 // =====================================================================
 // motor
 // =====================================================================
-function registrar(e, minutos, t) {
+/**
+ * Registra uma sessão de estudo. Os campos extras (dia da semana, horários, pausas, desfecho)
+ * existem para estatísticas futuras — ver detalharSessao() em habitos.js.
+ */
+function registrar(e, minutos, t, desfecho = 'completo') {
   if (minutos < 1) return 0;
   const alvo = alvoPomodoro(e);
   // guarda para onde os minutos foram, para desfazer exatamente ali se a sessão for apagada
   const destino = alvo ? { habitoId: alvo.hab.id, metricaId: alvo.m.id } : null;
-  e.sessoes.push({ id: 'p' + uid(), dia: t.dia, tag: t.tag || null, assunto: t.assunto || null, minutos, inicio: t.iniciadoEm ?? t.inicio, fim: agora(), tipo: t.fase === 'livre' ? 'livre' : 'pomodoro', destino });
+  const fim = agora();
+  e.sessoes.push(detalharSessao({
+    id: 'p' + uid(), dia: t.dia, tag: t.tag || null, assunto: t.assunto || null, minutos,
+    inicio: t.iniciadoEm ?? t.inicio, fim, tipo: t.fase === 'livre' ? 'livre' : 'pomodoro', destino,
+    desfecho, // 'completo' | 'interrompido' | 'livre'
+    planejadoMin: t.duracaoMs != null ? Math.round(t.duracaoMs / 60000) : null,
+    pausadoMin: Math.round(((t.pausasMs || 0) + (t.pausadoEm ? fim - t.pausadoEm : 0)) / 60000),
+    pausas: t.pausas || 0,
+    materiaNome: materia(t.tag)?.nome || null, // nome na época (se a matéria for apagada/renomeada depois)
+  }));
   if (destino) {
     const d = (e.dias[t.dia] ??= {});
     const v = (d[destino.habitoId] ??= {});
@@ -104,7 +117,7 @@ export function pausarOuRetomar() {
   if (!t) return iniciar();
   mudar((e) => {
     const x = e.pomodoro.timer;
-    if (x.pausadoEm) { x.inicio += agora() - x.pausadoEm; x.pausadoEm = null; } else x.pausadoEm = agora();
+    if (x.pausadoEm) { const p = agora() - x.pausadoEm; x.inicio += p; x.pausasMs = (x.pausasMs || 0) + p; x.pausadoEm = null; } else { x.pausadoEm = agora(); x.pausas = (x.pausas || 0) + 1; }
   });
 }
 export function reiniciarFase() {
@@ -117,7 +130,7 @@ export function parar(registrarParcial = true) {
   let min = 0;
   mudar((e) => {
     const x = e.pomodoro.timer;
-    if (registrarParcial && (x.fase === 'foco' || x.fase === 'livre')) min = registrar(e, Math.floor(decorrido(x) / 60000), x);
+    if (registrarParcial && (x.fase === 'foco' || x.fase === 'livre')) min = registrar(e, Math.floor(decorrido(x) / 60000), x, x.fase === 'livre' ? 'livre' : 'interrompido');
     e.pomodoro.timer = null;
   });
   if (min) avisar(`+${minTxt(min)} de ${materia(t.tag)?.nome || 'estudo'} registrados`);
@@ -137,11 +150,11 @@ export function concluirFase(natural = true) {
     const p = e.pomodoro;
     const x = p.timer;
     if (x.fase === 'foco') {
-      min = registrar(e, natural ? Math.round(x.duracaoMs / 60000) : Math.floor(decorrido(x) / 60000), x);
+      min = registrar(e, natural ? Math.round(x.duracaoMs / 60000) : Math.floor(decorrido(x) / 60000), x, natural ? 'completo' : 'interrompido');
       p.ciclo = (p.ciclo || 0) + 1;
       proxima = p.ciclo % c.ciclos === 0 ? 'longa' : 'curta';
     } else if (x.fase === 'livre') {
-      min = registrar(e, Math.floor(decorrido(x) / 60000), x);
+      min = registrar(e, Math.floor(decorrido(x) / 60000), x, 'livre');
       proxima = 'livre';
     } else {
       if (x.fase === 'longa') p.ciclo = 0;
