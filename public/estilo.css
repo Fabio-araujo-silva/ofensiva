@@ -65,7 +65,7 @@ a { color: inherit; }
 }
 .marca { display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: 22px; letter-spacing: -.02em; text-decoration: none; }
 .marca-fogo { width: 26px; height: 26px; }
-.topo-nav { display: flex; gap: 4px; margin-left: 8px; }
+.topo-nav { display: flex; align-items: center; gap: 4px; margin-left: 8px; }
 .topo-nav a { text-decoration: none; color: var(--suave); font-weight: 700; padding: 6px 12px; border-radius: 999px; }
 .topo-nav a:hover { color: var(--texto); background: var(--painel2); }
 .topo-dir { margin-left: auto; display: flex; align-items: center; gap: 10px; }
@@ -92,7 +92,11 @@ a { color: inherit; }
 }
 @media (max-width: 760px) {
   .hero { grid-template-columns: minmax(0, 1fr); }
-  .topo-nav { display: none; }
+  .topo { gap: 10px; }
+  .marca > span:last-child { display: none; }
+  .topo-nav { margin-left: 0; }
+  .topo-nav a { padding: 6px 10px; }
+  .btn-pomodoro .bp-txt { display: none; }
 }
 
 .card { background: var(--painel); border: 1px solid var(--borda); border-radius: var(--raio); padding: 20px; }
@@ -547,7 +551,18 @@ h2.secao { font-size: 22px; font-weight: 900; margin: 0; letter-spacing: -.01em;
 .coluna-tarefas .todos { position: static; max-height: none; }
 .coluna-tarefas .todo-lista { max-height: 460px; }
 .topo-nav a.ativo { color: var(--texto); background: var(--painel2); }
-.btn-foco { font-size: 18px; }
+.btn-pomodoro {
+  --f1: #ff6b57; --f2: #ffb36b;
+  display: inline-flex; align-items: center; gap: 7px; margin-left: 6px; padding: 6px 14px 6px 10px; border-radius: 999px;
+  font-weight: 800; color: #fff; background: linear-gradient(135deg, color-mix(in srgb, var(--f1) 30%, var(--painel2)), color-mix(in srgb, var(--f2) 18%, var(--painel2)));
+  border: 1px solid color-mix(in srgb, var(--f1) 50%, transparent); transition: transform .1s, box-shadow .2s;
+}
+.btn-pomodoro:hover { box-shadow: 0 0 18px color-mix(in srgb, var(--f1) 35%, transparent); }
+.btn-pomodoro:active { transform: scale(.96); }
+.btn-pomodoro .bp-marca { font-size: 16px; line-height: 1; }
+.btn-pomodoro.rodando { background: linear-gradient(135deg, var(--f1), var(--f2)); color: #16110e; font-variant-numeric: tabular-nums; }
+.btn-pomodoro.rodando .bp-txt { display: inline; }
+.btn-pomodoro.pausado { opacity: .8; }
 .ic-txt { font-size: 12px; font-weight: 900; letter-spacing: -.02em; }
 .todo-acoes .mover { color: var(--apagado); }
 .todo-acoes .mover:hover { color: var(--texto); }

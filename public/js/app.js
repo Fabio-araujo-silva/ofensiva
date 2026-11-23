@@ -43,6 +43,7 @@ function renderTudo() {
   renderMaterias();
   renderFoco();
   renderPilula();
+  renderBotaoPomodoro();
   mostrarClaudinho(S.estado.perfil.claudinho !== false && S.estado.onboardingFeito);
   detectarConquistas();
 }
@@ -732,6 +733,23 @@ $('#ano').addEventListener('click', (ev) => {
 // =====================================================================
 // vistas: "hoje" (padrão) e "matérias" (#materias)
 // =====================================================================
+/** Botão "Pomodoro" do topo: vira um mini relógio na cor da matéria quando o timer está rodando. */
+function renderBotaoPomodoro() {
+  const b = $('#btn-foco');
+  const t = S.estado.pomodoro?.timer;
+  const tema = temaAtual();
+  const [c1, c2] = tema.cores[t?.fase || 'foco'] || tema.cores.foco;
+  b.style.setProperty('--f1', c1);
+  b.style.setProperty('--f2', c2);
+  b.classList.toggle('rodando', !!t);
+  b.classList.toggle('pausado', !!t?.pausadoEm);
+  b.querySelector('.bp-marca').textContent = t?.fase === 'curta' || t?.fase === 'longa' ? '☕' : tema.marca;
+  const txt = b.querySelector('.bp-txt');
+  if (t) txt.setAttribute('data-pomo-tempo', '');
+  else { txt.removeAttribute('data-pomo-tempo'); txt.textContent = 'Pomodoro'; }
+  b.title = t ? 'Voltar para o modo foco' : 'Abrir o modo foco (pomodoro)';
+}
+
 function aplicarVista() {
   const materias = location.hash === '#materias';
   document.body.classList.toggle('vista-materias', materias);
