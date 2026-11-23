@@ -72,20 +72,30 @@ export function som(tipo = 'ok') {
   try {
     audio ??= new AudioContext();
     if (audio.state === 'suspended') audio.resume();
-    const notas = tipo === 'ofensiva' ? [523.25, 659.25, 783.99, 1046.5] : tipo === 'tique' ? [880] : [659.25, 987.77];
-    const passo = tipo === 'ofensiva' ? 0.11 : 0.09;
+    // [notas, intervalo entre notas, duração de cada nota, forma de onda, volume]
+    const SONS = {
+      ok: [[659.25, 987.77], 0.09, 0.3, 'sine', 0.12],
+      tique: [[880], 0.09, 0.3, 'sine', 0.05],
+      ofensiva: [[523.25, 659.25, 783.99, 1046.5], 0.11, 0.5, 'sine', 0.12],
+      // fim de fase do pomodoro, um por tema
+      sino: [[783.99, 1174.66, 1567.98], 0.16, 1.6, 'sine', 0.1],
+      pentatonica: [[587.33, 659.25, 783.99, 880, 1174.66], 0.17, 1.2, 'triangle', 0.09], // ré mi sol lá ré: escala pentatônica chinesa
+      arpejo: [[523.25, 659.25, 783.99, 1046.5, 1318.51], 0.1, 0.8, 'sine', 0.09],
+      bip: [[880, 1174.66, 1760], 0.12, 0.18, 'square', 0.035],
+    };
+    const [notas, passo, dur, onda, vol] = SONS[tipo] || SONS.ok;
     notas.forEach((f, i) => {
       const t = audio.currentTime + i * passo;
       const o = audio.createOscillator();
       const g = audio.createGain();
-      o.type = 'sine';
+      o.type = onda;
       o.frequency.value = f;
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(tipo === 'tique' ? 0.05 : 0.12, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + (tipo === 'ofensiva' ? 0.5 : 0.3));
+      g.gain.linearRampToValueAtTime(vol, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       o.connect(g).connect(audio.destination);
       o.start(t);
-      o.stop(t + 0.6);
+      o.stop(t + dur + 0.1);
     });
   } catch {
     /* sem áudio, sem problema */

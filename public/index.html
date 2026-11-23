@@ -36,9 +36,11 @@
       <a href="#registro">Hoje</a>
       <a href="#todos">Tarefas</a>
       <a href="#ano">Ano</a>
+      <a href="#materias">Matérias</a>
     </nav>
     <div class="topo-dir">
       <div class="topo-chama" id="topo-chama" title="Ofensiva geral"></div>
+      <button class="btn-icone btn-foco" id="btn-foco" title="Modo foco (pomodoro)" aria-label="Modo foco">🍅</button>
       <button class="btn-icone" id="btn-ajustes" title="Ajustes" aria-label="Ajustes"></button>
     </div>
   </header>
@@ -50,13 +52,19 @@
       <div class="card proverbio" id="proverbio"></div>
     </section>
     <section class="card horoscopo" id="horoscopo"></section>
-    <aside class="card todos" id="todos"></aside>
+    <div class="coluna-tarefas">
+      <aside class="card todos" id="todos"></aside>
+      <aside class="card todos semana-tarefas" id="semana-tarefas"></aside>
+    </div>
     <section class="registro" id="registro"></section>
     </div>
     <section class="ano" id="ano"></section>
+    <section class="materias-vista" id="materias-vista"></section>
     <footer class="rodape">feito pra você manter a chama acesa · seus dados ficam só neste computador</footer>
   </main>
 
+  <div id="foco-raiz"></div>
+  <div id="pomo-pilula"></div>
   <div id="claudinho-raiz"></div>
   <div class="dica" id="dica" hidden></div>
   <div class="avisos" id="avisos"></div>

@@ -93,6 +93,30 @@ export function h(tag, props, ...filhos) {
 }
 export const svg = (s) => h('span', { class: 'ic', html: s });
 
+/**
+ * Redesenha `raiz` sem perder o que a pessoa está digitando: campos com data-campo guardam
+ * o texto ainda não confirmado, o foco e a posição do cursor através do redesenho.
+ */
+export function manterCampos(raiz, desenhar) {
+  const salvos = new Map();
+  const ativo = document.activeElement;
+  for (const el of raiz.querySelectorAll('[data-campo]')) {
+    if (el.value !== el.defaultValue || el === ativo) {
+      salvos.set(el.dataset.campo, { valor: el.value, mudou: el.value !== el.defaultValue, foco: el === ativo, ini: el.selectionStart, fim: el.selectionEnd });
+    }
+  }
+  desenhar();
+  for (const [campo, s] of salvos) {
+    const el = raiz.querySelector(`[data-campo="${CSS.escape(campo)}"]`);
+    if (!el) continue;
+    if (s.mudou) el.value = s.valor;
+    if (s.foco) {
+      el.focus();
+      try { el.setSelectionRange(s.ini, s.fim); } catch {}
+    }
+  }
+}
+
 export const ICONES = {
   fogo: `<svg viewBox="0 0 24 24" aria-hidden="true"><path class="f-ext" d="M12.6 1.6c.7 3.4-1 5.5-2.7 7.4C8.3 10.8 6.4 12.7 6.4 15.6c0 3.7 2.6 6.8 5.6 6.8s5.6-3 5.6-6.6c0-2.6-1.2-4.6-2.5-6-.3 1.4-1 2.5-2 3 .5-3.9-.6-8.1-.5-11.2z"/><path class="f-int" d="M12 12.4c1 1.7 2.8 2.6 2.8 4.8 0 1.8-1.3 3.2-2.8 3.2s-2.8-1.4-2.8-3.2c0-1.9 1.8-2.9 2.8-4.8z"/></svg>`,
   engrenagem: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`,

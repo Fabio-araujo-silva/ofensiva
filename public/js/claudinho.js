@@ -199,7 +199,7 @@ const DESCR = {
 export function reagir(evento, extra = {}) {
   if (!el || dormindo || el.style.display === 'none' || ocupado) return;
   const agora = Date.now();
-  const forte = evento === 'ofensiva' || evento === 'tudo';
+  const forte = evento === 'ofensiva' || evento === 'tudo' || evento === 'pomodoro';
   if (!forte && agora - ultimoAuto < 75_000) return;
   ultimoAuto = agora;
   if (forte || evento === 'completou') {
@@ -222,6 +222,7 @@ async function falar(evento, extra) {
   if (evento === 'completou') pedido = `Acabei de completar 100% do hábito "${extra.nome}" hoje! Comemora comigo em uma frase.`;
   if (evento === 'ofensiva') pedido = `Acabei de garantir a ofensiva geral de hoje: ${extra.dias} dia(s) seguido(s)! Comemora.`;
   if (evento === 'tudo') pedido = 'Acabei de completar TODOS os hábitos de hoje! Comemora muito.';
+  if (evento === 'pomodoro') pedido = `Acabei de concluir um pomodoro de ${extra.minutos} min${extra.materia ? ` de ${extra.materia}` : ''} (hoje já são ${extra.hoje} min de foco). Agora vem: ${extra.proxima}. Comemora em uma frase e sugere algo curto pra fazer na pausa.`;
 
   let texto = null;
   let motivo = null;
@@ -269,6 +270,7 @@ function fraseLocal(evento, extra, c) {
   if (evento === 'completou') return sortear([`${extra.nome} fechado! Mais um quadradinho colorido 🔥`, `Isso${nome}! ${extra.nome} no 100%.`, `${extra.nome} ✔️ — é assim que se constrói uma ofensiva.`]);
   if (evento === 'ofensiva') return `${extra.dias} ${extra.dias === 1 ? 'dia' : 'dias'} de ofensiva! A chama de hoje está garantida 🔥`;
   if (evento === 'tudo') return `TUDO feito hoje${nome}! Dia perfeito. Agora é descansar com orgulho.`;
+  if (evento === 'pomodoro') return sortear([`+${extra.minutos} min${extra.materia ? ` de ${extra.materia}` : ''}! Levanta, bebe uma água e alonga 🍅`, `Pomodoro fechado! Hoje já são ${extra.hoje} min de foco.`, `Isso${nome}! Pausa merecida — olha pra longe da tela um pouquinho.`]);
   const faltando = (c.habitos || []).filter((x) => x.progresso < 100).sort((a, b) => b.progresso - a.progresso);
   if (!c.habitos?.length) return 'Cria uns hábitos em Ajustes que eu fico de olho em você 👀';
   if (!faltando.length) return sortear([`Tudo fechado hoje${nome}. Dia perfeito!`, 'Nada pendente. Aproveita o resto do dia 😌']);

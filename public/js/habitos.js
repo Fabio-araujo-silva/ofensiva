@@ -209,6 +209,11 @@ export function normalizar(e) {
   e.todos = Array.isArray(e.todos) ? e.todos : [];
   e.onboardingFeito = !!e.onboardingFeito;
   e.cronometro = e.cronometro || null;
+  e.semanais = Array.isArray(e.semanais) ? e.semanais : [];
+  e.materias = Array.isArray(e.materias) ? e.materias : [];
+  for (const m of e.materias) m.assuntos = Array.isArray(m.assuntos) ? m.assuntos : [];
+  e.sessoes = Array.isArray(e.sessoes) ? e.sessoes : [];
+  e.pomodoro = { config: {}, timer: null, ciclo: 0, cicloDia: null, proxima: 'foco', tag: null, assunto: null, ...(e.pomodoro || {}) };
   return e;
 }
 

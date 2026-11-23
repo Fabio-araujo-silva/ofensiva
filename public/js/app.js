@@ -1,5 +1,5 @@
 import {
-  h, $, svg, ICONES, hojeISO, somaDias, parseISO, iso, diaSemana, inicioSemana, LETRAS_SEMANA,
+  h, $, svg, ICONES, manterCampos, hojeISO, somaDias, parseISO, iso, diaSemana, inicioSemana, LETRAS_SEMANA,
   dataLonga, dataCurta, nomeMes, fmt, pct, uid, misturar, numeroLivre, pad,
 } from './util.js';
 import {
@@ -9,6 +9,10 @@ import {
 import { S, carregar, definirRender, render, mudar, avisar, temPendencia } from './store.js';
 import { proverbioDoDia } from './proverbios.js';
 import { horoscopoDoDia, leituraOffline } from './horoscopo.js';
+import { renderSemana, rolarSemanais } from './semana.js';
+import { renderFoco, renderPilula, abrirFoco, alvoPomodoro, materia, sessoesDoDia, resumoHojePorMateria, temaAtual } from './pomodoro.js';
+import { renderMaterias } from './materias.js';
+import { temaDe } from './temas.js';
 import { iniciarClaudinho, reagir, mostrarClaudinho } from './claudinho.js';
 import { confete, som, celebrarOfensiva } from './efeitos.js';
 import { abrirOnboarding } from './onboarding.js';
@@ -32,8 +36,13 @@ function renderTudo() {
   renderProverbio();
   renderHoroscopo();
   renderRegistro();
+  aplicarVista();
   renderTodos();
+  renderSemana();
   renderAno();
+  renderMaterias();
+  renderFoco();
+  renderPilula();
   mostrarClaudinho(S.estado.perfil.claudinho !== false && S.estado.onboardingFeito);
   detectarConquistas();
 }
@@ -53,7 +62,7 @@ function detectarConquistas() {
   for (const id of novos) {
     const hab = e.habitos.find((x) => x.id === id);
     const card = document.querySelector(`.hcard[data-hid="${id}"]`);
-    if (card && S.dia === d) {
+    if (card && S.dia === d && card.offsetParent) {
       const r = card.getBoundingClientRect();
       confete(r.left + r.width / 2, r.top + 40, [hab.cor, '#ffffff', '#ffc857'], 50);
       card.classList.add('pulo');
@@ -297,11 +306,54 @@ function irPara(d) {
   render();
 }
 
-function anel(p, descanso) {
+// Animação do progresso: cada anel/barra lembra o último valor desenhado e anima dele até o novo
+// (o cartão é recriado a cada mudança, então sem isso ele "pularia" direto pro valor final).
+const ULTIMO = new Map();
+const reduzMovimento = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const depoisDoPintar = (fn) => requestAnimationFrame(() => requestAnimationFrame(fn));
+const suave = (t) => 1 - Math.pow(1 - t, 3);
+
+function contarPct(span, de, para, ms = 750) {
+  const ini = performance.now();
+  const passo = (agora) => {
+    if (!span.isConnected) return;
+    const t = Math.min(1, (agora - ini) / ms);
+    const v = de + (para - de) * suave(t);
+    span.textContent = t >= 1 && para >= 0.999 ? '✓' : pct(v);
+    if (t < 1) requestAnimationFrame(passo);
+  };
+  requestAnimationFrame(passo);
+}
+
+function anel(p, descanso, chave) {
   const R = 18, C = 2 * Math.PI * R;
-  const off = C * (1 - Math.min(1, p));
-  return h('div', { class: `anel ${p >= 0.999 ? 'cheio' : ''}`, html: `<svg viewBox="0 0 44 44"><circle class="anel-fundo" cx="22" cy="22" r="${R}"/><circle class="anel-frente" cx="22" cy="22" r="${R}" stroke-dasharray="${C}" stroke-dashoffset="${off}"/></svg>` },
-    h('span', null, descanso ? '💤' : p >= 0.999 ? '✓' : pct(p)));
+  const alvo = Math.min(1, p);
+  const de = reduzMovimento ? alvo : ULTIMO.has(chave) ? ULTIMO.get(chave) : 0;
+  ULTIMO.set(chave, alvo);
+  const cheio = alvo >= 0.999;
+  const rotulo = h('span', null, descanso ? '💤' : de === alvo ? (cheio ? '✓' : pct(alvo)) : pct(de));
+  const el = h('div', {
+    class: `anel ${cheio ? 'cheio' : ''}`,
+    html: `<svg viewBox="0 0 44 44"><circle class="anel-fundo" cx="22" cy="22" r="${R}"/><circle class="anel-frente" cx="22" cy="22" r="${R}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - de)}"/></svg>`,
+  }, rotulo);
+  if (de !== alvo) {
+    depoisDoPintar(() => {
+      el.querySelector('.anel-frente')?.setAttribute('stroke-dashoffset', String(C * (1 - alvo)));
+      if (!descanso) contarPct(rotulo, de, alvo);
+      if (cheio && de < 0.999) setTimeout(() => el.classList.add('estourou'), 650);
+    });
+  }
+  return el;
+}
+
+/** Barra de progresso que anima do valor anterior até o novo. */
+function barraAnimada(frac, chave) {
+  const alvo = Math.max(0, Math.min(1, frac));
+  const de = reduzMovimento ? alvo : ULTIMO.has(chave) ? ULTIMO.get(chave) : 0;
+  ULTIMO.set(chave, alvo);
+  const preench = h('div', { style: { width: pct(de) } });
+  if (de !== alvo) depoisDoPintar(() => (preench.style.width = `${alvo * 100}%`));
+  return h('div', { class: `barra ${alvo >= 0.999 ? 'cheia' : ''}` }, preench);
 }
 
 /** Muda o valor de um hábito no dia aberto. */
@@ -330,7 +382,7 @@ function cardHabito(hab) {
     h('div', { class: 'hc-topo' },
       h('div', { class: 'hc-emoji' }, hab.emoji),
       h('div', { class: 'hc-tit' }, h('div', { class: 'hc-nome' }, hab.nome), h('div', { class: 'hc-meta', title: descricaoMeta(hab) }, descricaoMeta(hab))),
-      anel(r.p, r.descanso)),
+      anel(r.p, r.descanso, `${hab.id}|${S.dia}`)),
     corpo,
     h('div', { class: 'hc-rodape' },
       h('span', { class: `chip-of ${k ? '' : 'zero'}` }, fogo(k > 0), `${k} ${k === 1 ? 'dia' : 'dias'}`),
@@ -359,17 +411,39 @@ function corpoNumero(hab, v) {
       inp.focus();
       inp.select();
     });
-    const cron = m.cronometro ? botaoCronometro(hab, m) : null;
+    const alvo = alvoPomodoro();
+    const ehAlvo = alvo && alvo.hab.id === hab.id && alvo.m.id === m.id;
+    const cronAqui = S.estado.cronometro?.habitoId === hab.id && S.estado.cronometro?.metricaId === m.id;
+    const cron = ehAlvo ? [botaoPomodoro(), cronAqui ? botaoCronometro(hab, m) : null] : m.cronometro ? botaoCronometro(hab, m) : null;
+    const porMat = ehAlvo ? resumoPorMateriaDoDia() : null;
     return h('div', { class: 'met' },
       hab.metricas.length > 1 && h('div', { class: 'met-nome' }, m.nome),
       h('div', { class: 'met-val' }, valorEl, h('span', { class: 'met-meta' }, `/ ${fmtMetrica(m.meta, m)}`)),
-      h('div', { class: 'barra' }, h('div', { style: { width: pct(Math.min(1, val / m.meta)) } })),
+      barraAnimada(val / m.meta, `${hab.id}|${m.id}|${S.dia}`),
       h('div', { class: 'botoes' },
         h('button', { class: 'b menos', disabled: val <= 0, onClick: () => somar(-passos[0]), 'aria-label': `Tirar ${passos[0]}` }, `−${fmt(passos[0], 2)}`),
         passos.map((q) => h('button', { class: 'b mais', onClick: () => somar(q) }, `+${fmt(q, 2)}`)),
         cron),
+      porMat,
       m.dica && h('div', { class: 'dica-hab' }, m.dica));
   });
+}
+
+function botaoPomodoro() {
+  const t = S.estado.pomodoro.timer;
+  const tema = temaAtual();
+  return h('button', { class: `b cron pomo ${t ? 'rodando' : ''}`, title: 'Abrir o modo foco (pomodoro)', onClick: abrirFoco },
+    h('span', null, tema.marca), t ? h('span', { 'data-pomo-tempo': '' }, '…') : 'pomodoro');
+}
+function resumoPorMateriaDoDia() {
+  const ss = S.dia === S.hoje ? sessoesDoDia() : sessoesDoDia(S.dia);
+  if (!ss.length) return null;
+  const mapa = new Map();
+  for (const s of ss) mapa.set(s.tag || '_', (mapa.get(s.tag || '_') || 0) + s.minutos);
+  return h('div', { class: 'pomo-resumo' }, [...mapa.entries()].sort((a, b) => b[1] - a[1]).map(([tag, min]) => {
+    const mt = materia(tag);
+    return h('span', { style: { '--m': mt?.cor || '#6c6c78' } }, h('i'), `${mt?.nome || 'sem matéria'} · ${min} min`);
+  }));
 }
 
 function botaoCronometro(hab, m) {
@@ -458,19 +532,23 @@ function corpoNiveis(hab, v) {
 // tarefas do dia
 // =====================================================================
 function renderTodos() {
+  manterCampos($('#todos'), desenharTodos);
+}
+function desenharTodos() {
   const e = S.estado, hoje = S.hoje;
   const raiz = $('#todos');
   const lista = e.todos.filter((t) => t.dia === hoje).sort((a, b) => (a.feito - b.feito) || (b.manter - a.manter) || (a.criado - b.criado));
   const feitas = lista.filter((t) => t.feito).length;
   const focoAntes = document.activeElement?.id === 'todo-nova';
 
-  const entrada = h('input', { id: 'todo-nova', placeholder: 'Adicionar tarefa de hoje…', maxlength: '200', autocomplete: 'off' });
+  const entrada = h('input', { id: 'todo-nova', placeholder: 'Adicionar tarefa de hoje…', maxlength: '200', autocomplete: 'off', 'data-campo': 'todo-nova' });
   const form = h('form', {
     class: 'todo-form',
     onSubmit: (ev) => {
       ev.preventDefault();
       const texto = entrada.value.trim();
       if (!texto) return;
+      entrada.value = '';
       mudar((st) => st.todos.push({ id: 't' + uid(), texto, feito: false, dia: hoje, manter: false, adiado: 0, criado: Date.now() }));
       $('#todo-nova')?.focus();
     },
@@ -514,6 +592,13 @@ function itemTodo(t) {
         'aria-pressed': String(!!t.manter),
         onClick: () => alterar((x) => (x.manter = !x.manter)),
       }, svg(ICONES.pin)),
+      !t.feito && h('button', {
+        class: 'mover', title: 'Mover para as tarefas da semana', 'aria-label': 'Mover para a semana',
+        onClick: () => mudar((e) => {
+          e.todos = e.todos.filter((y) => y.id !== t.id);
+          e.semanais.push({ id: 's' + uid(), texto: t.texto, feito: false, semana: inicioSemana(S.hoje), acumular: false, adiada: 0, criado: Date.now() });
+        }),
+      }, h('span', { class: 'ic-txt' }, '→S')),
       h('button', { title: 'Apagar', 'aria-label': 'Apagar tarefa', onClick: () => mudar((e) => (e.todos = e.todos.filter((y) => y.id !== t.id))) }, svg(ICONES.x))));
 }
 
@@ -644,6 +729,15 @@ $('#ano').addEventListener('click', (ev) => {
 });
 
 // =====================================================================
+// vistas: "hoje" (padrão) e "matérias" (#materias)
+// =====================================================================
+function aplicarVista() {
+  const materias = location.hash === '#materias';
+  document.body.classList.toggle('vista-materias', materias);
+  for (const a of document.querySelectorAll('.topo-nav a')) a.classList.toggle('ativo', materias ? a.getAttribute('href') === '#materias' : a.getAttribute('href') === '#registro');
+}
+
+// =====================================================================
 // contexto para o Claudinho
 // =====================================================================
 function contextoClaudinho() {
@@ -668,6 +762,13 @@ function contextoClaudinho() {
       };
     }),
     tarefasDeHoje: { feitas: e.todos.filter((t) => t.dia === d && t.feito).length, pendentes: pend.slice(0, 6).map((t) => t.texto) },
+    tarefasDaSemana: {
+      faltamDias: 6 - ((new Date().getDay() + 6) % 7),
+      pendentes: e.semanais.filter((t) => t.semana === inicioSemana(d) && !t.feito).slice(0, 6).map((t) => t.texto),
+      feitas: e.semanais.filter((t) => t.semana === inicioSemana(d) && t.feito).length,
+    },
+    estudoHojePorMateria: resumoHojePorMateria() || 'nada ainda',
+    pomodoroRodando: e.pomodoro.timer ? `${e.pomodoro.timer.fase}${e.pomodoro.timer.tag ? ' de ' + (materia(e.pomodoro.timer.tag)?.nome || '') : ''}` : null,
     proverbioDoDia: `${p.h} (${p.p}) — ${p.sent}`,
   };
 }
@@ -683,13 +784,21 @@ function verificarDia() {
   if (estavaHoje) S.dia = agora;
   if (S.ano < new Date().getFullYear()) S.ano = new Date().getFullYear();
   foto = null;
-  mudar((e) => rolarTodos(e, agora));
+  mudar((e) => { rolarTodos(e, agora); rolarSemanais(e, agora); });
 }
 
 async function iniciar() {
   $('#btn-ajustes').append(svg(ICONES.engrenagem));
   $('#marca-fogo').innerHTML = ICONES.fogo;
   $('#btn-ajustes').addEventListener('click', () => abrirAjustes());
+  $('#btn-foco').addEventListener('click', () => abrirFoco());
+  addEventListener('hashchange', () => {
+    aplicarVista();
+    renderMaterias();
+    const alvo = location.hash.slice(1);
+    if (alvo === 'materias' || !alvo) window.scrollTo({ top: 0 });
+    else document.getElementById(alvo)?.scrollIntoView({ behavior: 'smooth' });
+  });
   try {
     await carregar();
   } catch {
@@ -697,6 +806,7 @@ async function iniciar() {
     return;
   }
   rolarTodos(S.estado, S.hoje);
+  rolarSemanais(S.estado, S.hoje);
   iniciarClaudinho({ contexto: contextoClaudinho, temChave: () => S.claude.configurada });
   render();
   if (!S.estado.onboardingFeito) abrirOnboarding();
@@ -711,7 +821,7 @@ async function iniciar() {
     const revAntes = S.rev;
     try {
       await carregar();
-      if (S.rev !== revAntes) { rolarTodos(S.estado, S.hoje); render(); }
+      if (S.rev !== revAntes) { rolarTodos(S.estado, S.hoje); rolarSemanais(S.estado, S.hoje); render(); }
     } catch {}
   });
 }
