@@ -421,7 +421,8 @@ function corpoNumero(hab, v) {
       h('div', { class: 'met-val' }, valorEl, h('span', { class: 'met-meta' }, `/ ${fmtMetrica(m.meta, m)}`)),
       barraAnimada(val / m.meta, `${hab.id}|${m.id}|${S.dia}`),
       h('div', { class: 'botoes' },
-        h('button', { class: 'b menos', disabled: val <= 0, onClick: () => somar(-passos[0]), 'aria-label': `Tirar ${passos[0]}` }, `−${fmt(passos[0], 2)}`),
+        (m.menos?.filter((x) => x > 0).length ? m.menos.filter((x) => x > 0) : [passos[0]]).map((q) =>
+          h('button', { class: 'b menos', disabled: val <= 0, onClick: () => somar(-q), 'aria-label': `Tirar ${q}` }, `−${fmt(q, 2)}`)),
         passos.map((q) => h('button', { class: 'b mais', onClick: () => somar(q) }, `+${fmt(q, 2)}`)),
         cron),
       porMat,

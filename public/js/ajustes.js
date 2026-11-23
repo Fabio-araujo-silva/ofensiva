@@ -73,11 +73,15 @@ function configTipo(w, desenhar) {
           type: 'text', value: (m.passos || []).join('; ').replace(/\./g, ','), placeholder: 'ex.: 250; 500',
           onInput: (e) => (m.passos = e.target.value.split(';').map((x) => numeroLivre(x)).filter((x) => x > 0)),
         })),
+        h('div', { class: 'campo' }, h('label', null, 'Botões de −'), h('input', {
+          type: 'text', value: (m.menos || []).join('; ').replace(/\./g, ','), placeholder: 'vazio = o 1º botão de +',
+          onInput: (e) => (m.menos = e.target.value.split(';').map((x) => numeroLivre(x)).filter((x) => x > 0)),
+        })),
         h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.decimal, onChange: (e) => (m.decimal = e.target.checked) }), 'aceita decimais'),
         h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.cronometro, onChange: (e) => (m.cronometro = e.target.checked) }), 'cronômetro (unidade min)')));
     return h('div', { class: 'bloco' },
       h('h4', null, 'Métricas'),
-      h('p', { class: 'ajuda' }, 'Uma métrica basta. Use duas quando valer uma OU outra (ex.: ler 2 páginas ou ouvir 10 min de audiobook). Separe os botões de + com ponto e vírgula.'),
+      h('p', { class: 'ajuda' }, 'Uma métrica basta. Use duas quando valer uma OU outra (ex.: ler 2 páginas ou ouvir 10 min de audiobook). Separe os botões de + e de − com ponto e vírgula (se o − ficar vazio, ele usa o 1º valor do +).'),
       metricas,
       w.metricas.length > 1 && h('div', { class: 'campo' }, h('label', null, 'Como combinar'),
         h('select', { onChange: (e) => (w.combinar = e.target.value) },
