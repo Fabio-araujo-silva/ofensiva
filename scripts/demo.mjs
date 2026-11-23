@@ -42,11 +42,48 @@ for (let d = inicio, i = 0; d < hoje; d = somaDias(d, 1), i++) {
   dias[d] = dia;
 }
 
+// matérias com assuntos e subtópicos + sessões de pomodoro
+const mid = (n) => 'mt' + n;
+const sub = (nomes, vistos) => nomes.map((nome, i) => ({ id: `st${nome.length}${i}${vistos}`, nome, visto: i < vistos }));
+const materias = [
+  { id: mid(1), nome: 'Cálculo I', cor: '#8ec5f5', assuntos: [
+    { id: 'as1', nome: 'Limites', subtopicos: sub(['Definição intuitiva', 'Limites laterais', 'Limites no infinito', 'Teorema do confronto'], 4) },
+    { id: 'as2', nome: 'Derivadas', subtopicos: sub(['Definição', 'Regra da cadeia', 'Derivada implícita', 'Taxas relacionadas', 'L\'Hôpital'], 2) },
+    { id: 'as3', nome: 'Integrais', subtopicos: sub(['Integral definida', 'TFC', 'Substituição', 'Por partes'], 0) },
+  ] },
+  { id: mid(2), nome: 'Mandarim (HSK 3)', cor: '#ff8a7a', assuntos: [
+    { id: 'as4', nome: 'Gramática', subtopicos: sub(['把 字句', '被 字句', 'Complemento de resultado', 'Complemento direcional'], 2) },
+    { id: 'as5', nome: 'Vocabulário', subtopicos: sub(['Lições 1–5', 'Lições 6–10', 'Lições 11–15'], 1) },
+  ] },
+  { id: mid(3), nome: 'Programação', cor: '#a6dd8f', assuntos: [{ id: 'as6', nome: 'Estruturas de dados', subtopicos: sub(['Listas', 'Pilhas e filas', 'Árvores', 'Grafos'], 3) }] },
+  { id: mid(4), nome: 'Biologia Celular', cor: '#86d0c5', assuntos: [] },
+];
+const sessoes = [];
+for (let i = 0, d = somaDias(hoje, -13); d <= hoje; d = somaDias(d, 1), i++) {
+  const n = Math.floor(rnd() * 5);
+  for (let k = 0; k < n; k++) {
+    const m = materias[Math.floor(rnd() * materias.length)];
+    const inicio = new Date(`${d}T${String(8 + k * 2).padStart(2, '0')}:15:00`).getTime();
+    sessoes.push({ id: `p${i}${k}`, dia: d, tag: m.id, assunto: null, minutos: 25, inicio, fim: inicio + 25 * 60000, tipo: 'pomodoro' });
+  }
+}
+const seg = somaDias(hoje, -((new Date().getDay() + 6) % 7));
+const semanais = [
+  { id: 's1', texto: 'Entregar lista 3 de Cálculo', feito: false, semana: seg, acumular: false, adiada: 1, criado: 1 },
+  { id: 's2', texto: 'Revisar slides de Programação', feito: false, semana: seg, acumular: true, adiada: 0, criado: 2 },
+  { id: 's3', texto: 'Simulado HSK 3', feito: true, semana: seg, acumular: false, adiada: 0, criado: 3 },
+  { id: 's4', texto: 'Marcar médico', feito: false, semana: seg, acumular: false, adiada: 0, criado: 4 },
+];
+
 const estado = {
   versao: 1,
-  perfil: { nome: '', limiar: 0.7, som: true, claudinho: true },
+  perfil: { nome: '', limiar: 0.7, som: true, claudinho: true, nascimento: '1998-08-15' },
   habitos,
   dias,
+  materias,
+  sessoes,
+  semanais,
+  pomodoro: { config: {}, timer: null, ciclo: 2, cicloDia: hoje, proxima: 'foco', tag: mid(2), assunto: 'as4' },
   todos: [
     { id: 'ta', texto: 'Mandar o relatório', feito: false, dia: hoje, manter: true, adiado: 1, criado: Date.now() - 1000 },
     { id: 'tb', texto: 'Comprar café', feito: true, dia: hoje, manter: false, adiado: 0, criado: Date.now() - 500 },
