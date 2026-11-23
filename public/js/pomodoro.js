@@ -345,7 +345,23 @@ export function renderFoco() {
     Array.from({ length: c.ciclos }, (_, i) => h('span', { class: i < cheios ? 'on' : '' }, tema.marca)));
 
   // ----- abas de modo -----
-  const trocarModo = (m) => { if (t) return avisar('Pare o timer atual antes de trocar de modo.'); mudar((e) => (e.pomodoro.proxima = m === 'livre' ? 'livre' : 'foco')); };
+  // Ir ao Livre guarda a fase do pomodoro que estava esperando (ex.: a pausa de 5/10 min)
+  // e voltar ao Pomodoro a devolve — a pausa pendente nunca some.
+  const trocarModo = (m) => {
+    if ((m === 'livre') === modoLivre) return;
+    if (t) return avisar('Pare o timer atual antes de trocar de modo.');
+    mudar((e) => {
+      const pm = e.pomodoro;
+      if (m === 'livre') {
+        pm.pendente = pm.proxima && pm.proxima !== 'livre' ? pm.proxima : 'foco';
+        pm.proxima = 'livre';
+      } else {
+        const guardada = ['foco', 'curta', 'longa'].includes(pm.pendente) && pm.cicloDia === S.hoje ? pm.pendente : 'foco';
+        pm.proxima = guardada;
+        pm.pendente = null;
+      }
+    });
+  };
   const abas = h('div', { class: 'foco-abas' },
     h('button', { class: !modoLivre ? 'on' : '', onClick: () => trocarModo('pomodoro') }, '🍅 Pomodoro'),
     h('button', { class: modoLivre ? 'on' : '', onClick: () => trocarModo('livre') }, '⏱ Livre'));
