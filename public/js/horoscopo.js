@@ -102,6 +102,16 @@ export function relacoesRamos(meu, dia) {
   return r;
 }
 
+/** Relação do seu animal com o animal do ANO (nomes próprios do ano, não do dia). */
+export function relacoesAno(meu, ano) {
+  if (meu === ano) {
+    const r = [{ zh: '本命年', nome: 'ano do seu animal', tom: 'misto', peso: 0, texto: 'É o seu 本命年 (ano do próprio animal, "值太岁"): tradicionalmente pede cautela e constância.' }];
+    if (AUTO_XING.includes(meu)) r.push({ zh: '自刑', nome: 'autopunição', tom: 'ruim', peso: -1, texto: 'Cuidado com a autocobrança neste ano.' });
+    return r;
+  }
+  return relacoesRamos(meu, ano).map((r) => (r.zh === '冲' ? { ...r, zh: '冲太岁', nome: 'choque com o ano', texto: 'Seu animal é o oposto do animal do ano (冲太岁): ano de mudanças.' } : r));
+}
+
 // ---------- cinco elementos ----------
 const GERA = { madeira: 'fogo', fogo: 'terra', terra: 'metal', metal: 'água', água: 'madeira' };
 const CONTROLA = { madeira: 'terra', terra: 'água', água: 'fogo', fogo: 'metal', metal: 'madeira' };
@@ -124,7 +134,7 @@ export function horoscopoDoDia(nascimentoISO, diaISO) {
   const nota = Math.max(1, Math.min(5, Math.round(3 + ramos.reduce((s, r) => s + r.peso, 0) + elementos.peso)));
   const tons = new Set(ramos.map((r) => r.tom));
   const tom = tons.has('ruim') && tons.has('bom') ? 'misto' : tons.has('ruim') ? 'atenção' : tons.has('bom') ? 'favorável' : tons.has('misto') ? 'misto' : 'neutro';
-  const relAno = relacoesRamos(signo.ramo, ano.ramo);
+  const relAno = relacoesAno(signo.ramo, ano.ramo);
   return { signo, dia, ano, ramos, elementos, nota, tom, relAno };
 }
 
