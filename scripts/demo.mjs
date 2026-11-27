@@ -13,7 +13,7 @@ fs.mkdirSync(pasta, { recursive: true });
 
 const hoje = hojeISO();
 const inicio = somaDias(hoje, -320);
-const escolhidas = ['agua', 'passos', 'idioma', 'estudo', 'treino', 'leitura', 'sono', 'projeto', 'dieta'];
+const escolhidas = ['agua', 'cardio', 'idioma', 'estudo', 'treino', 'leitura', 'sono', 'projeto', 'dieta'];
 const habitos = escolhidas.map((id) => instanciar(SUGESTOES.find((s) => s.sugestaoId === id), inicio));
 
 let semente = 42;
@@ -27,7 +27,8 @@ for (let d = inicio, i = 0; d < hoje; d = somaDias(d, 1), i++) {
     if (h.tipo === 'numero') {
       const v = {};
       for (const m of h.metricas) v[m.id] = m.limite ? Math.round(m.meta * (0.8 + rnd() * (1.5 - animo * 0.5)) / 10) * 10 : Math.round(m.meta * Math.min(1.15, 0.3 + rnd() * animo * 1.2) * (m.decimal ? 2 : 1)) / (m.decimal ? 2 : 1);
-      if (h.metricas.length > 1 && rnd() < 0.5) v[h.metricas[1].id] = 0;
+      if (h.combinar === 'soma') for (const m of h.metricas) v[m.id] = Math.round(v[m.id] * (0.35 + rnd() * 0.4)); // as partes somam: cada uma faz um pedaço
+      else if (h.metricas.length > 1 && rnd() < 0.5) v[h.metricas[1].id] = 0;
       dia[h.id] = v;
     } else if (h.tipo === 'checklist') {
       const v = {};

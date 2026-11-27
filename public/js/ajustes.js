@@ -1,5 +1,5 @@
 // Ajustes, editor de hábito e "novo hábito".
-import { h, svg, ICONES, uid, numeroLivre, hojeISO } from './util.js';
+import { h, svg, ICONES, uid, numeroLivre, hojeISO, fmt } from './util.js';
 import { S, mudar, render, abrirModal, avisar, botaoConfirmar, copiaRecuperavel, restaurarRecuperavel, descartarRecuperavel } from './store.js';
 import { TIPOS, PALETA, instanciar, descricaoMeta, normalizar } from './habitos.js';
 import { SUGESTOES, modeloVazio } from './sugestoes.js';
@@ -38,7 +38,7 @@ export function abrirEditor(base, { novo = false, aoSalvar }) {
                 onClick: () => {
                   if (w.tipo === k) return;
                   const vazio = modeloVazio(k);
-                  for (const chave of ['metricas', 'itens', 'niveis', 'tags', 'permiteDescanso', 'nota', 'combinar']) delete w[chave];
+                  for (const chave of ['metricas', 'itens', 'niveis', 'tags', 'permiteDescanso', 'nota', 'combinar', 'total']) delete w[chave];
                   Object.assign(w, { ...vazio, nome: w.nome, emoji: w.emoji, cor: w.cor });
                   desenhar();
                 },
@@ -61,13 +61,26 @@ export function abrirEditor(base, { novo = false, aoSalvar }) {
   });
 }
 
+/** "0,049" ou "0.049" → 0.049 (fatores pequenos: aqui o ponto nunca é separador de milhar). */
+const decimal = (txt) => { const n = Number(String(txt).trim().replace(',', '.')); return Number.isFinite(n) ? n : null; };
+
 function configTipo(w, desenhar) {
   if (w.tipo === 'numero') {
+    const soma = w.combinar === 'soma' && w.metricas.length > 1;
+    if (soma) w.total ||= { meta: null, unidade: '' };
+    // no modo soma, cada métrica vale um tanto da meta única (ex.: 1 andar de escada = 3 kcal)
+    const sozinha = h('span', { class: 'ajuda' });
+    const mostrarSozinhas = () => {
+      const mt = Number(w.total?.meta), partes = w.metricas.filter((m) => m.vale > 0).map((m) => `${fmt(Math.ceil(mt / m.vale), 0)} ${m.unidade || m.nome || ''}`.trim());
+      sozinha.textContent = soma && mt > 0 && partes.length ? `Só com uma delas, a meta seria: ${partes.join(' ou ')}. Misturando, vale a soma.` : '';
+    };
     const metricas = w.metricas.map((m, i) =>
       h('div', { class: 'metrica' },
         w.metricas.length > 1 && h('button', { class: 'mini-btn remover', 'aria-label': 'Remover métrica', onClick: () => { w.metricas.splice(i, 1); desenhar(); } }, svg(ICONES.x)),
         h('div', { class: 'campo' }, h('label', null, 'O que medir'), h('input', { type: 'text', value: m.nome, placeholder: 'ex.: Água', onInput: (e) => (m.nome = e.target.value) })),
-        h('div', { class: 'campo' }, h('label', null, 'Meta por dia'), h('input', { type: 'text', inputmode: 'decimal', value: String(m.meta ?? '').replace('.', ','), onInput: (e) => (m.meta = numeroLivre(e.target.value)) })),
+        soma
+          ? h('div', { class: 'campo' }, h('label', null, `Cada 1 vale${w.total.unidade ? ` (${w.total.unidade})` : ''}`), h('input', { type: 'text', inputmode: 'decimal', value: String(m.vale ?? '').replace('.', ','), placeholder: 'ex.: 0,04', onInput: (e) => { m.vale = decimal(e.target.value); mostrarSozinhas(); } }))
+          : h('div', { class: 'campo' }, h('label', null, 'Meta por dia'), h('input', { type: 'text', inputmode: 'decimal', value: String(m.meta ?? '').replace('.', ','), onInput: (e) => (m.meta = numeroLivre(e.target.value)) })),
         h('div', { class: 'campo' }, h('label', null, 'Unidade'), h('input', { type: 'text', value: m.unidade, placeholder: 'ml, passos, min, h, pág', onInput: (e) => (m.unidade = e.target.value.trim()) })),
         h('div', { class: 'campo' }, h('label', null, 'Botões de +'), h('input', {
           type: 'text', value: (m.passos || []).join('; ').replace(/\./g, ','), placeholder: 'ex.: 250; 500',
@@ -77,18 +90,24 @@ function configTipo(w, desenhar) {
           type: 'text', value: (m.menos || []).join('; ').replace(/\./g, ','), placeholder: 'vazio = o 1º botão de +',
           onInput: (e) => (m.menos = e.target.value.split(';').map((x) => numeroLivre(x)).filter((x) => x > 0)),
         })),
-        h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.limite, onChange: (e) => (m.limite = e.target.checked) }), 'a meta é um teto (no máximo — ex.: calorias)'),
-        h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.digitar, onChange: (e) => (m.digitar = e.target.checked) }), 'digitar o total do dia (sem botões)'),
+        !soma && h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.limite, onChange: (e) => (m.limite = e.target.checked) }), 'a meta é um teto (no máximo — ex.: calorias)'),
+        !soma && h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.digitar, onChange: (e) => (m.digitar = e.target.checked) }), 'digitar o total do dia (sem botões)'),
         h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.decimal, onChange: (e) => (m.decimal = e.target.checked) }), 'aceita decimais'),
-        h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.cronometro, onChange: (e) => (m.cronometro = e.target.checked) }), 'cronômetro (unidade min)')));
+        !soma && h('label', { class: 'alternar' }, h('input', { type: 'checkbox', checked: !!m.cronometro, onChange: (e) => (m.cronometro = e.target.checked) }), 'cronômetro (unidade min)')));
+    mostrarSozinhas();
     return h('div', { class: 'bloco' },
       h('h4', null, 'Métricas'),
-      h('p', { class: 'ajuda' }, 'Uma métrica basta. Use duas quando valer uma OU outra (ex.: ler 2 páginas ou ouvir 10 min de audiobook). Separe os botões de + e de − com ponto e vírgula (se o − ficar vazio, ele usa o 1º valor do +).'),
-      metricas,
+      h('p', { class: 'ajuda' }, 'Uma métrica basta. Use duas quando valer uma OU outra (ex.: ler 2 páginas ou ouvir 10 min de audiobook), ou quando elas somarem para uma meta só (ex.: passos + andares de escada = calorias de cardio). Separe os botões de + e de − com ponto e vírgula (se o − ficar vazio, ele usa o 1º valor do +).'),
       w.metricas.length > 1 && h('div', { class: 'campo' }, h('label', null, 'Como combinar'),
-        h('select', { onChange: (e) => (w.combinar = e.target.value) },
-          h('option', { value: 'max', selected: w.combinar !== 'media' }, 'Basta uma bater a meta'),
-          h('option', { value: 'media', selected: w.combinar === 'media' }, 'Média das métricas'))),
+        h('select', { onChange: (e) => { w.combinar = e.target.value; desenhar(); } },
+          h('option', { value: 'max', selected: w.combinar !== 'media' && w.combinar !== 'soma' }, 'Basta uma bater a meta'),
+          h('option', { value: 'media', selected: w.combinar === 'media' }, 'Média das métricas'),
+          h('option', { value: 'soma', selected: w.combinar === 'soma' }, 'Somam para uma meta única (cada uma vale um tanto)'))),
+      soma && h('div', { class: 'metrica total' },
+        h('div', { class: 'campo' }, h('label', null, 'Meta única por dia'), h('input', { type: 'text', inputmode: 'decimal', value: String(w.total.meta ?? '').replace('.', ','), placeholder: 'ex.: 500', onInput: (e) => { w.total.meta = numeroLivre(e.target.value); mostrarSozinhas(); } })),
+        h('div', { class: 'campo' }, h('label', null, 'Unidade da meta'), h('input', { type: 'text', value: w.total.unidade, placeholder: 'ex.: kcal, pontos', onInput: (e) => (w.total.unidade = e.target.value.trim()), onChange: desenhar })),
+        sozinha),
+      metricas,
       h('div', null, h('button', { class: 'btn-texto', onClick: () => { w.metricas.push({ nome: '', meta: 1, unidade: '', passos: [1] }); desenhar(); } }, svg(ICONES.mais), 'métrica alternativa')));
   }
   if (w.tipo === 'checklist') {
@@ -123,7 +142,10 @@ function validar(w) {
   if (!w.nome?.trim()) return 'Dê um nome ao hábito.';
   if (w.tipo === 'numero') {
     if (!w.metricas.length) return 'Adicione ao menos uma métrica.';
-    for (const m of w.metricas) if (!(m.meta > 0)) return 'Toda métrica precisa de uma meta maior que zero.';
+    if (w.combinar === 'soma' && w.metricas.length > 1) {
+      if (!(w.total?.meta > 0)) return 'Diga qual é a meta única do dia.';
+      for (const m of w.metricas) if (!(m.vale > 0)) return 'Diga quanto vale cada unidade de cada métrica.';
+    } else for (const m of w.metricas) if (!(m.meta > 0)) return 'Toda métrica precisa de uma meta maior que zero.';
   }
   if (w.tipo === 'checklist' && !w.itens.some((i) => i.nome.trim())) return 'Dê nome a pelo menos uma parte.';
   if (w.tipo === 'niveis' && !w.niveis.some((n) => n.nome.trim())) return 'Dê nome a pelo menos um nível.';
@@ -139,6 +161,15 @@ function limpar(w) {
       if (!m.passos?.length) m.passos = [m.decimal ? 0.5 : 1];
     });
     w.combinar ||= 'max';
+    if (w.combinar === 'soma' && w.metricas.length < 2) w.combinar = 'max';
+    if (w.combinar === 'soma') {
+      w.total = { meta: Number(w.total.meta), unidade: (w.total.unidade || '').trim() };
+      // "meta" de cada métrica = quanto dela, sozinha, bate a meta única (usado onde só existe meta por métrica)
+      for (const m of w.metricas) { m.meta = Math.ceil(w.total.meta / m.vale); delete m.limite; delete m.digitar; delete m.cronometro; }
+    } else {
+      delete w.total;
+      for (const m of w.metricas) delete m.vale;
+    }
   }
   if (w.tipo === 'checklist') w.itens = w.itens.filter((i) => i.nome.trim()).map((i) => ({ ...i, nome: i.nome.trim(), id: i.id || 'i' + uid() }));
   if (w.tipo === 'niveis') w.niveis = w.niveis.filter((n) => n.nome.trim()).map((n) => ({ ...n, nome: n.nome.trim() }));

@@ -84,7 +84,12 @@ export function abrirOnboarding() {
   function passo2() {
     const itens = st.escolhidos.map((x, idx) => {
       const campos = [h('input', { class: 'nome', value: x.nome, maxlength: '40', 'aria-label': 'Nome do hábito', onInput: (ev) => (x.nome = ev.target.value) })];
-      if (x.tipo === 'numero') {
+      if (x.tipo === 'numero' && x.combinar === 'soma') {
+        // meta única: as métricas somam (o quanto cada uma vale se ajusta no lápis)
+        campos.push(h('div', { class: 'linha' },
+          h('input', { class: 'entrada', type: 'text', inputmode: 'decimal', value: String(x.total.meta).replace('.', ','), 'aria-label': `Meta de ${x.nome}`, onInput: (ev) => (x.total.meta = numeroLivre(ev.target.value)) }),
+          h('span', { class: 'ajuda' }, `${x.total.unidade} por dia, somando ${x.metricas.map((m) => m.nome.toLowerCase()).join(' + ')}`)));
+      } else if (x.tipo === 'numero') {
         campos.push(h('div', { class: 'linha' }, x.metricas.map((m, i) => [
           i > 0 && h('span', { class: 'ajuda' }, x.combinar === 'media' ? '+' : 'ou'),
           h('input', { class: 'entrada', type: 'text', inputmode: 'decimal', value: String(m.meta).replace('.', ','), 'aria-label': `Meta de ${m.nome}`, onInput: (ev) => (m.meta = numeroLivre(ev.target.value)) }),
@@ -121,7 +126,7 @@ export function abrirOnboarding() {
   function validarTodos() {
     for (const x of st.escolhidos) {
       if (!x.nome?.trim()) return 'Todo hábito precisa de nome.';
-      if (x.tipo === 'numero' && x.metricas.some((m) => !(m.meta > 0))) return `Confira a meta de ${x.nome}.`;
+      if (x.tipo === 'numero' && (x.combinar === 'soma' ? !(x.total?.meta > 0) : x.metricas.some((m) => !(m.meta > 0)))) return `Confira a meta de ${x.nome}.`;
       if (x.tipo === 'checklist' && !x.itens.length) return `${x.nome} precisa de pelo menos uma parte.`;
     }
     return null;

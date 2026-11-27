@@ -15,6 +15,16 @@ export const SUGESTOES = [
     metricas: [{ id: 'passos', nome: 'Passos', meta: 8000, unidade: 'passos', passos: [1000, 5000] }],
   },
   {
+    sugestaoId: 'cardio', nome: 'Cardio', emoji: '🏃', cor: '#f7a98b', tipo: 'numero',
+    descricao: 'Calorias gastas no dia: passos e andares de escada somam para a mesma meta.',
+    combinar: 'soma', total: { meta: 400, unidade: 'kcal' },
+    // valores médios para ~70 kg; no lápis dá pra ajustar quanto vale cada passo e cada andar
+    metricas: [
+      { id: 'passos', nome: 'Passos', meta: 10000, vale: 0.04, unidade: 'passos', passos: [1000, 5000] },
+      { id: 'andares', nome: 'Andares de escada', meta: 134, vale: 3, unidade: 'andares', passos: [1, 5, 10] },
+    ],
+  },
+  {
     sugestaoId: 'estudo', nome: 'Estudar', emoji: '📚', cor: '#b3b3ec', tipo: 'numero',
     descricao: 'Minutos de estudo, com cronômetro.',
     combinar: 'max',

@@ -32,9 +32,11 @@ export function progresso(h, v) {
   if (!v) return { p: 0, descanso: false, reg: false };
   switch (h.tipo) {
     case 'numero': {
+      const reg = h.metricas.some((m) => (Number(v[m.id]) || 0) > 0);
+      if (ehSoma(h)) return { p: Math.min(totalSoma(h, v) / h.total.meta, 1), descanso: false, reg };
       const rs = h.metricas.map((m) => razaoMetrica(m, Number(v[m.id]) || 0));
       const p = rs.length === 0 ? 0 : h.combinar === 'media' ? rs.reduce((a, b) => a + b, 0) / rs.length : Math.max(...rs);
-      return { p, descanso: false, reg: h.metricas.some((m) => (Number(v[m.id]) || 0) > 0) };
+      return { p, descanso: false, reg };
     }
     case 'checklist': {
       const n = h.itens.filter((i) => v[i.id]).length;
@@ -61,6 +63,17 @@ export function razaoMetrica(m, val) {
   if (m.limite) return val <= 0 ? 0 : val <= meta ? 1 : meta / val;
   return Math.min(val / meta, 1);
 }
+
+/**
+ * Hábito numérico em que as métricas SOMAM para uma meta única, cada uma convertida pelo seu
+ * `vale` (ex.: cardio de 500 kcal = passos × 0,04 + andares de escada × 3).
+ */
+export const ehSoma = (h) => h.tipo === 'numero' && h.combinar === 'soma' && Number(h.total?.meta) > 0;
+/** Quanto um valor de métrica contribui para o total (na unidade do total). */
+export const parcela = (m, val) => (Number(val) || 0) * (Number(m.vale) || 0);
+export const totalSoma = (h, v) => (v ? h.metricas.reduce((s, m) => s + parcela(m, v[m.id]), 0) : 0);
+/** A meta única vista como uma métrica (para formatar com fmtMetrica). */
+export const metricaTotal = (h) => ({ nome: h.total.nome || h.nome, meta: Number(h.total.meta), unidade: h.total.unidade || '' });
 
 export const valorDe = (e, h, dia) => e.dias[dia]?.[h.id];
 export const prog = (e, h, dia) => progresso(h, valorDe(e, h, dia));
@@ -171,6 +184,10 @@ export function fmtMetrica(valor, m) {
 export function descricaoMeta(h) {
   switch (h.tipo) {
     case 'numero': {
+      if (ehSoma(h)) {
+        const nomes = h.metricas.map((m) => (m.nome || m.unidade || '').toLowerCase()).filter(Boolean);
+        return `${fmtMetrica(h.total.meta, metricaTotal(h))} por dia, somando ${nomes.join(' + ')}`;
+      }
       const partes = h.metricas.map((m) => {
         const nome = (m.nome || '').toLowerCase();
         const redundante = !nome || (m.unidade && nome.startsWith(m.unidade.toLowerCase().replace('.', '')));
@@ -194,6 +211,11 @@ export function detalheValor(h, v) {
   if (!v) return 'nada registrado';
   switch (h.tipo) {
     case 'numero':
+      if (ehSoma(h)) {
+        const mt = metricaTotal(h);
+        const partes = h.metricas.filter((m) => Number(v[m.id]) > 0).map((m) => fmtMetrica(Number(v[m.id]), m));
+        return `${fmtMetrica(Math.round(totalSoma(h, v)), mt)} de ${fmtMetrica(mt.meta, mt)}${partes.length ? ` (${partes.join(' + ')})` : ''}`;
+      }
       return h.metricas.map((m) => {
         const val = Number(v[m.id]) || 0;
         const fim = m.limite ? ` (limite ${fmtMetrica(m.meta, m)}${val > m.meta ? `, passou ${fmtMetrica(val - m.meta, m)}` : ''})` : ` de ${fmtMetrica(m.meta, m)}`;
