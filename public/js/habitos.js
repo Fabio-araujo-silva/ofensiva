@@ -145,6 +145,12 @@ export function ofensivaGeral(e, hoje, limiar) {
   if (!ini) return 0;
   return contaSequencia(hoje, ini, (d) => okGeral(notaDia(e, d), limiar));
 }
+/** Quantos dias a ofensiva teria se `dia` (um dia passado ainda abaixo da meta) passasse a contar. */
+export function ofensivaGeralSe(e, hoje, limiar, dia) {
+  const ini = inicioGeral(e);
+  if (!ini) return 0;
+  return contaSequencia(hoje, ini < dia ? ini : dia, (d) => d === dia || okGeral(notaDia(e, d), limiar));
+}
 export function recordeGeral(e, hoje, limiar) {
   const ini = inicioGeral(e);
   if (!ini) return 0;

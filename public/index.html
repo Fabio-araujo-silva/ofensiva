@@ -2,8 +2,9 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07070b">
   <title>Ofensiva</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ff9a3c' d='M12.6 1.6c.7 3.4-1 5.5-2.7 7.4C8.3 10.8 6.4 12.7 6.4 15.6c0 3.7 2.6 6.8 5.6 6.8s5.6-3 5.6-6.6c0-2.6-1.2-4.6-2.5-6-.3 1.4-1 2.5-2 3 .5-3.9-.6-8.1-.5-11.2z'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,6 +13,8 @@
   <link rel="stylesheet" href="estilo.css">
 </head>
 <body>
+  <!-- fundo ambiente (luz + grão); o movimento.js o desliza com a rolagem -->
+  <div id="fundo" aria-hidden="true"><i class="f-base"></i><i class="f-luz f-fria"></i><i class="f-luz f-chama"></i><i class="f-luz f-passado"></i></div>
   <!-- gradientes compartilhados pelos ícones de fogo -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
@@ -32,11 +35,34 @@
       <span class="marca-fogo fogo aceso" id="marca-fogo"></span>
       <span>ofensiva</span>
     </a>
-    <nav class="topo-nav">
-      <a href="#registro">Hoje</a>
-      <a href="#materias">Matérias</a>
+    <!-- no computador fica na barra do topo; no celular vira a barra de abas flutuante do rodapé -->
+    <nav class="topo-nav" aria-label="Seções">
+      <div class="nav-abas">
+        <span class="nav-lente" aria-hidden="true"></span>
+        <a href="#" data-sec="topo">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.2c.6 3.2-.9 5.2-2.5 7C8.6 10.9 6.9 12.7 6.9 15.5c0 3.4 2.3 6.3 5.1 6.3s5.1-2.8 5.1-6.1c0-2.4-1.1-4.3-2.3-5.6-.3 1.3-.9 2.3-1.8 2.8.4-3.7-.5-7.7-.4-10.7z"/></svg>
+          <span class="nav-tx">Hoje</span>
+        </a>
+        <a href="#todos" data-sec="todos" class="nav-so-celular">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5l1.8 1.8L8.6 5M3.5 16.5l1.8 1.8L8.6 15M12.5 7H20.5M12.5 17H20.5"/></svg>
+          <span class="nav-tx">Tarefas</span>
+        </a>
+        <a href="#registro" data-sec="registro">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><path d="M8.4 12.3l2.5 2.5 4.7-5.2"/></svg>
+          <span class="nav-tx">Hábitos</span>
+        </a>
+        <a href="#ano" data-sec="ano">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><rect x="3.8" y="3.8" width="6.6" height="6.6" rx="1.8"/><rect x="13.6" y="3.8" width="6.6" height="6.6" rx="1.8"/><rect x="3.8" y="13.6" width="6.6" height="6.6" rx="1.8"/><rect x="13.6" y="13.6" width="6.6" height="6.6" rx="1.8"/></svg>
+          <span class="nav-tx">Ano</span>
+        </a>
+        <a href="#materias">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.2A2.2 2.2 0 0 1 7.2 3H19v14.2H7.2A2.2 2.2 0 0 0 5 19.4V5.2zM5 19.4A1.8 1.8 0 0 0 6.8 21H19"/></svg>
+          <span class="nav-tx">Matérias</span>
+        </a>
+      </div>
       <button class="btn-pomodoro" id="btn-foco" title="Abrir o modo foco (pomodoro)" aria-label="Pomodoro"><span class="bp-marca">🍅</span><span class="bp-txt">Pomodoro</span></button>
     </nav>
+    <div class="nav-tempo" id="nav-tempo"></div>
     <div class="topo-dir">
       <div class="topo-chama" id="topo-chama" title="Ofensiva geral"></div>
       <button class="btn-icone" id="btn-ajustes" title="Ajustes" aria-label="Ajustes"></button>

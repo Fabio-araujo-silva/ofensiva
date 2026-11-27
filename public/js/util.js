@@ -26,6 +26,12 @@ export function dataLonga(s) {
   const d = parseISO(s);
   return `${SEMANA[diaSemana(s)]}, ${d.getDate()} de ${MESES[d.getMonth()]}`;
 }
+/** "qua, 25 nov" (com o ano quando não é o atual) */
+export function dataMedia(s) {
+  const d = parseISO(s);
+  const ano = d.getFullYear() === new Date().getFullYear() ? '' : ` ${d.getFullYear()}`;
+  return `${SEMANA[diaSemana(s)].slice(0, 3)}, ${d.getDate()} ${MESES[d.getMonth()]}${ano}`;
+}
 export function dataCurta(s) {
   const d = parseISO(s);
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
@@ -53,11 +59,6 @@ function hexRgb(hex) {
   const h = hex.replace('#', '');
   const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
   return [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16));
-}
-export function misturar(a, b, t) {
-  const A = hexRgb(a), B = hexRgb(b);
-  const c = A.map((x, i) => Math.round(x + (B[i] - x) * t));
-  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 export function comAlfa(hex, a) {
   const [r, g, b] = hexRgb(hex);

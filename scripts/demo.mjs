@@ -89,6 +89,10 @@ const estado = {
     { id: 'ta', texto: 'Mandar o relatório', feito: false, dia: hoje, manter: true, adiado: 1, criado: Date.now() - 1000 },
     { id: 'tb', texto: 'Comprar café', feito: true, dia: hoje, manter: false, adiado: 0, criado: Date.now() - 500 },
     { id: 'tc', texto: 'Ligar pro dentista', feito: false, dia: hoje, manter: false, adiado: 0, criado: Date.now() },
+    // ontem: duas esquecidas (sem 📌) e uma feita, para o ‹ do card ter o que mostrar
+    { id: 'td', texto: 'Responder o e-mail do estágio', feito: false, dia: somaDias(hoje, -1), manter: false, adiado: 0, criado: Date.now() - 86400000 },
+    { id: 'te', texto: 'Imprimir a lista 3', feito: false, dia: somaDias(hoje, -1), manter: false, adiado: 0, criado: Date.now() - 86000000 },
+    { id: 'tf', texto: 'Lavar roupa', feito: true, dia: somaDias(hoje, -1), manter: false, adiado: 0, criado: Date.now() - 85000000 },
   ],
   onboardingFeito: true,
   cronometro: null,

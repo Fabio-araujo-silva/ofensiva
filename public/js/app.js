@@ -1,24 +1,27 @@
 import {
   h, $, svg, ICONES, manterCampos, hojeISO, somaDias, parseISO, iso, diaSemana, inicioSemana, LETRAS_SEMANA,
-  dataLonga, dataCurta, nomeMes, fmt, pct, uid, misturar, numeroLivre, pad,
+  dataLonga, dataMedia, dataCurta, diffDias, nomeMes, fmt, pct, uid, comAlfa, numeroLivre, pad,
 } from './util.js';
 import {
   progresso, prog, okDia, ativos, inicioHabito, ofensivaHabito, recordeHabito, notaDia, okGeral, inicioGeral,
-  ofensivaGeral, recordeGeral, diasPerfeitos, pctHabito, descricaoMeta, detalheValor, fmtMetrica, rolarTodos, limparCache, valorDe,
+  ofensivaGeral, ofensivaGeralSe, recordeGeral, diasPerfeitos, pctHabito, descricaoMeta, detalheValor, fmtMetrica, rolarTodos, limparCache, valorDe,
+  ehSoma, parcela, totalSoma, metricaTotal,
 } from './habitos.js';
 import { S, carregar, definirRender, render, mudar, avisar, temPendencia } from './store.js';
 import { proverbioDoDia } from './proverbios.js';
 import { horoscopoDoDia, leituraOffline } from './horoscopo.js';
 import { renderSemana, rolarSemanais } from './semana.js';
-import { renderFoco, renderPilula, abrirFoco, alvoPomodoro, materia, sessoesDoDia, resumoHojePorMateria, temaAtual } from './pomodoro.js';
+import { renderFoco, renderPilula, abrirFoco, alvoPomodoro, materia, sessoesDoDia, resumoHojePorMateria, temaAtual, abrirSessoesDoDia } from './pomodoro.js';
 import { renderMaterias } from './materias.js';
 import { temaDe } from './temas.js';
 import { iniciarClaudinho, reagir, mostrarClaudinho } from './claudinho.js';
 import { confete, som, celebrarOfensiva } from './efeitos.js';
 import { abrirOnboarding } from './onboarding.js';
 import { abrirAjustes, abrirNovoHabito } from './ajustes.js';
+import { iniciarMovimento, aposDesenhar } from './movimento.js';
 
-const VAZIO = '#2a2a30';
+// quadradinhos do mapa de calor: a cor do hábito fica mais opaca quanto mais do dia foi feito
+const tomCelula = (cor, p) => comAlfa(cor, 0.16 + 0.84 * Math.min(1, p));
 const fogo = (aceso, extra = '') => h('span', { class: `fogo ${aceso ? 'aceso' : ''} ${extra}`, html: ICONES.fogo });
 const limiar = () => S.estado.perfil.limiar ?? 0.7;
 const lerLS = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -31,7 +34,15 @@ let foto = null; // o que estava completo no último render (para comemorar só 
 
 function renderTudo() {
   limparCache();
+  // o clima do fundo (html) e os detalhes que mudam no passado (body)
+  const passado = S.dia !== S.hoje;
+  const acesa = okGeral(notaDia(S.estado, S.hoje), limiar()) || ofensivaGeral(S.estado, S.hoje, limiar()) > 0;
+  for (const el of [document.documentElement, document.body]) {
+    el.classList.toggle('no-passado', passado);
+    el.classList.toggle('chama-acesa', acesa);
+  }
   renderTopo();
+  renderNavTempo();
   renderOfensiva();
   renderProverbio();
   renderHoroscopo();
@@ -54,9 +65,22 @@ function detectarConquistas() {
   const completos = new Set(ativos(e).filter((x) => prog(e, x, d).p >= 0.999).map((x) => x.id));
   const nd = notaDia(e, d);
   const geral = okGeral(nd, limiar());
+  const dias = ofensivaGeral(e, d, limiar());
+  const aberto = { dia: S.dia, ok: okGeral(notaDia(e, S.dia), limiar()) };
   const antes = foto;
-  foto = { dia: d, completos, geral, perfeito: nd.perfeito };
+  foto = { dia: d, completos, geral, perfeito: nd.perfeito, dias, aberto };
   if (!antes || antes.dia !== d) return;
+  // a chama cresceu sem ser por hoje: um dia passado foi corrigido
+  if (dias > antes.dias && geral === antes.geral) {
+    if (e.perfil.som !== false) som('ofensiva');
+    avisar(`🔥 Ofensiva recuperada: ${antes.dias} → ${dias} ${dias === 1 ? 'dia' : 'dias'}`, 5000);
+    const chama = $('#ofensiva .of-chama')?.getBoundingClientRect();
+    if (chama) confete(chama.left + chama.width / 2, chama.top + chama.height / 2, ['#ff7a1f', '#ffc857', '#ffffff'], 60);
+  } else if (aberto.dia !== d && aberto.dia === antes.aberto?.dia && aberto.ok && !antes.aberto.ok) {
+    // o dia passado atingiu a meta, mas há outro buraco no caminho: avisa que ele já conta
+    if (e.perfil.som !== false) som('ok');
+    avisar(`🔥 ${dataLonga(aberto.dia)} agora conta pra ofensiva`, 4500);
+  }
 
   const novos = [...completos].filter((id) => !antes.completos.has(id));
   const tocar = e.perfil.som !== false;
@@ -100,6 +124,10 @@ function renderTopo() {
 // =====================================================================
 // ofensiva (estilo Duolingo)
 // =====================================================================
+/** "12%" que falta para a meta (arredonda pra cima: nunca diz "faltam 0%" com a meta ainda aberta). */
+const faltaPct = (media, lim) => `${Math.max(1, Math.ceil((lim - media) * 100 - 1e-6))}%`;
+const maiuscula = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+
 function renderOfensiva() {
   const e = S.estado, hoje = S.hoje, lim = limiar();
   const raiz = $('#ofensiva');
@@ -107,44 +135,63 @@ function renderOfensiva() {
   const rec = recordeGeral(e, hoje, lim);
   const nd = notaDia(e, hoje);
   const garantida = okGeral(nd, lim);
-  raiz.className = `card ofensiva ${garantida || n ? '' : 'fria'}`;
+  // Voltando no tempo, a barra, o status e o "% feito" passam a falar do dia aberto:
+  // é nele que a pessoa está mexendo, então é o progresso dele que tem de andar na tela.
+  const dia = S.dia, passado = dia !== hoje;
+  const ndDia = passado ? notaDia(e, dia) : nd;
+  const contaDia = okGeral(ndDia, lim);
+  const nomeDia = nomeRelativo(dia) || dataMedia(dia);
+  raiz.className = `card ofensiva ${garantida || n ? '' : 'fria'} ${passado ? 'passado' : ''}`;
 
   const ini = inicioGeral(e);
-  const seg = inicioSemana(hoje);
+  const seg = inicioSemana(dia);
   const semana = LETRAS_SEMANA.map((letra, i) => {
     const d = somaDias(seg, i);
+    const nota = d <= hoje ? notaDia(e, d) : null;
     let cls = 'perdeu';
     let conteudo = null;
     if (d > hoje) cls = 'futuro';
-    else if (!ini || d < ini) cls = 'futuro';
-    else if (okGeral(notaDia(e, d), lim)) { cls = 'ok'; conteudo = fogo(true); }
+    else if (okGeral(nota, lim)) { cls = 'ok'; conteudo = fogo(true); }
     else if (d === hoje) { cls = 'pendente'; conteudo = fogo(false); }
-    return h('div', { class: `semana-dia ${d === hoje ? 'hoje' : ''}`, title: dataLonga(d) },
-      h('span', null, letra), h('div', { class: `semana-bola ${cls}` }, conteudo));
+    else if (!ini || d < ini) cls = 'futuro';
+    // dia que ainda não bateu a meta: o aro mostra quanto do caminho já foi (cada registro mexe nele)
+    const parte = nota && cls !== 'ok' && nota.reg ? Math.min(1, nota.media / lim) : 0;
+    const abre = d <= hoje; // dá pra abrir o dia e corrigir o registro
+    const resumo = nota?.reg ? ` · ${pct(nota.media)} do dia${cls === 'ok' ? ' 🔥' : ` (meta ${pct(lim)})`}` : '';
+    return h(abre ? 'button' : 'div', {
+      class: `semana-dia ${d === hoje ? 'hoje' : ''} ${d === dia && passado ? 'sel' : ''}`,
+      title: abre && d !== hoje ? `${dataLonga(d)}${resumo} — abrir e corrigir esse dia` : `${dataLonga(d)}${resumo}`,
+      onClick: abre ? () => irPara(d, { rolar: true }) : null,
+    }, h('span', null, letra), h('div', { class: `semana-bola ${cls} ${parte ? 'parcial' : ''}`, style: parte ? { '--p': parte.toFixed(3) } : null }, conteudo));
   });
 
-  const falta = Math.max(0, lim - nd.media);
-  const status = !ativos(e).length
-    ? 'Crie seus hábitos para acender a primeira chama.'
-    : garantida
-      ? nd.perfeito ? 'Dia perfeito! Todos os hábitos fechados 🔥' : 'Ofensiva de hoje garantida! 🔥'
-      : n
-        ? `Faltam ${pct(falta)} do dia pra manter a chama de ${n} ${n === 1 ? 'dia' : 'dias'}.`
-        : `Chegue a ${pct(lim)} do dia para acender a chama.`;
+  let status;
+  if (!ativos(e).length) status = 'Crie seus hábitos para acender a primeira chama.';
+  else if (passado) {
+    if (contaDia) status = [h('b', null, maiuscula(nomeDia)), ` conta pra ofensiva: ${pct(ndDia.media)} do dia feito 🔥`];
+    else {
+      const se = ofensivaGeralSe(e, hoje, lim, dia);
+      status = [h('b', null, maiuscula(nomeDia)), ` está em ${pct(ndDia.media)}: faltam ${faltaPct(ndDia.media, lim)} pra esse dia acender`,
+        se > n ? ` e a chama ir de ${n} pra ${se} ${se === 1 ? 'dia' : 'dias'}.` : '.'];
+    }
+  } else if (garantida) status = nd.perfeito ? 'Dia perfeito! Todos os hábitos fechados 🔥' : 'Ofensiva de hoje garantida! 🔥';
+  else if (n) status = `Faltam ${faltaPct(nd.media, lim)} do dia pra manter a chama de ${n} ${n === 1 ? 'dia' : 'dias'}.`;
+  else status = `Chegue a ${pct(lim)} do dia para acender a chama.`;
 
   raiz.replaceChildren(
     h('div', { class: 'of-topo' },
       h('div', { class: 'of-chama' }, fogo(garantida || n > 0, 'vivo')),
       h('div', null, h('div', { class: 'of-num' }, String(n)), h('div', { class: 'of-rotulo' }, n === 1 ? 'dia de ofensiva' : 'dias de ofensiva'))),
     h('p', { class: 'of-status' }, status),
-    h('div', { class: 'of-barra', title: `Hoje: ${pct(nd.media)} · meta da ofensiva: ${pct(lim)}` },
-      h('div', { class: 'of-barra-enc', style: { width: pct(Math.min(1, nd.media)) } }),
+    h('div', { class: `of-barra ${contaDia ? 'bateu' : ''}`, title: `${maiuscula(nomeDia)}: ${pct(ndDia.media)} · meta da ofensiva: ${pct(lim)}` },
+      h('div', { class: 'of-barra-enc', style: { width: pct(Math.min(1, ndDia.media)) } }),
       h('div', { class: 'of-barra-marca', 'data-rot': `meta ${pct(lim)}`, style: { left: pct(lim) } })),
     h('div', { class: 'semana' }, semana),
     h('div', { class: 'of-stats' },
       h('div', { class: 'stat' }, h('b', null, String(rec)), h('span', null, 'recorde')),
       h('div', { class: 'stat' }, h('b', null, String(diasPerfeitos(e, hoje))), h('span', null, 'dias perfeitos')),
-      h('div', { class: 'stat' }, h('b', null, pct(nd.media)), h('span', null, 'do dia feito'))),
+      h('div', { class: `stat ${passado ? 'do-dia-aberto' : ''}` }, h('b', null, pct(ndDia.media)),
+        h('span', null, !passado ? 'do dia feito' : nomeRelativo(dia) ? `de ${nomeRelativo(dia)} feito` : `feito em ${dataCurta(dia)}`))),
     ativos(e).length ? h('div', { class: 'chips-ofensiva' }, ativos(e).map((x) => {
       const k = ofensivaHabito(e, x, hoje);
       return h('span', { class: `chip-of ${k ? '' : 'zero'}`, title: `${x.nome}: ${k} ${k === 1 ? 'dia' : 'dias'} seguidos` }, x.emoji, ' ', fogo(k > 0), String(k));
@@ -290,9 +337,15 @@ function renderRegistro() {
 
   raiz.replaceChildren(
     h('div', { class: 'cabecalho-secao' },
-      h('h2', { class: 'secao' }, eHoje ? 'Registro de hoje' : 'Registro'),
-      lista.length ? h('span', { class: 'nota-dia' }, `${pct(nd.media)} do dia`) : null,
+      h('h2', { class: 'secao' }, nomeRelativo(dia) ? `Registro de ${nomeRelativo(dia)}` : 'Registro'),
+      lista.length ? h('span', { class: 'nota-dia' }, `${pct(nd.media)} do dia`,
+        okGeral(nd, limiar())
+          ? h('span', { class: 'selo-dia ok' }, '🔥 conta pra ofensiva')
+          : h('span', { class: 'selo-dia' }, `faltam ${faltaPct(nd.media, limiar())} pra 🔥`)) : null,
       nav),
+    !eHoje && lista.length ? h('p', { class: 'aviso-passado' },
+      h('b', null, `Você está em ${dataLonga(dia)}.`), ' O que marcar aqui vale pra esse dia, e a ofensiva se recalcula.',
+      antesDoComeco(dia) ? ` Esse dia é de antes do seu começo (${dataMedia(inicioGeral(e))}): os dias vazios no meio entram na média.` : '') : '',
     lista.length
       ? h('div', { class: 'grade-habitos' }, lista.map(cardHabito))
       : h('div', { class: 'card vazio-estado' },
@@ -301,10 +354,44 @@ function renderRegistro() {
   );
 }
 
-function irPara(d) {
-  if (d > S.hoje) return;
+// =====================================================================
+// voltar no tempo: o dia aberto (S.dia) vale para o registro e para as tarefas
+// =====================================================================
+function nomeRelativo(d) {
+  const n = diffDias(d, S.hoje);
+  return n === 0 ? 'hoje' : n === 1 ? 'ontem' : n === 2 ? 'anteontem' : null;
+}
+const antesDoComeco = (d) => { const ini = inicioGeral(S.estado); return !!ini && d < ini; };
+
+/** Abre um dia (hoje ou passado). `rolar`: leva até o registro se ele não estiver na tela. */
+function irPara(d, { rolar = false } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '') || d > S.hoje) return;
   S.dia = d;
   render();
+  if (!rolar || document.body.classList.contains('vista-materias')) return;
+  const r = $('#registro').getBoundingClientRect();
+  if (r.top > innerHeight - 140 || r.bottom < 90) $('#registro').scrollIntoView({ behavior: 'smooth' });
+}
+
+/** Seletor de dia do topo: ‹ dia ›, calendário e a volta pra hoje. */
+function renderNavTempo() {
+  const raiz = $('#nav-tempo');
+  const dia = S.dia, eHoje = dia === S.hoje;
+  const seletor = h('input', {
+    type: 'date', class: 'nt-data', max: S.hoje, value: dia, tabindex: '-1', 'aria-hidden': 'true',
+    onChange: (ev) => irPara(ev.target.value, { rolar: true }),
+  });
+  const abrirCalendario = () => { try { seletor.showPicker(); } catch { seletor.focus(); } };
+  raiz.className = `nav-tempo ${eHoje ? '' : 'passado'}`;
+  raiz.replaceChildren(
+    h('button', { class: 'nt-seta', title: 'Dia anterior', 'aria-label': 'Dia anterior', onClick: () => irPara(somaDias(dia, -1), { rolar: true }) }, svg(ICONES.esq)),
+    h('button', { class: `nt-dia ${nomeRelativo(dia) ? 'rel' : ''}`, title: 'Escolher um dia para ver e corrigir', 'aria-label': `Dia aberto: ${dataLonga(dia)}. Escolher outro dia`, onClick: abrirCalendario },
+      h('span', { class: 'nt-ic' }, eHoje ? '📅' : '⏪'),
+      eHoje ? null : h('b', null, nomeRelativo(dia) || `há ${diffDias(dia, S.hoje)} dias`),
+      h('span', null, dataMedia(dia))),
+    seletor,
+    h('button', { class: 'nt-seta', title: 'Próximo dia', 'aria-label': 'Próximo dia', disabled: eHoje, onClick: () => irPara(somaDias(dia, 1), { rolar: true }) }, svg(ICONES.dir)),
+    eHoje ? '' : h('button', { class: 'nt-hoje', onClick: () => irPara(S.hoje) }, h('span', { class: 'nt-hoje-longo' }, 'voltar pra '), 'hoje'));
 }
 
 // Animação do progresso: cada anel/barra lembra o último valor desenhado e anima dele até o novo
@@ -420,39 +507,108 @@ function metricaDigitada(hab, m, val) {
     m.dica && h('div', { class: 'dica-hab' }, m.dica));
 }
 
+/** O número grande de uma métrica: clique para digitar o valor exato. */
+function botaoValor(hab, m, val, classe = '') {
+  const emHoras = m.unidade === 'min' && m.meta >= 60;
+  const valorEl = h('button', { class: `valor-btn ${classe}`, title: `Clique para digitar o valor exato${emHoras ? ' (em minutos)' : ''}` },
+    emHoras ? fmtMetrica(val, m) : fmt(val, m.decimal ? 1 : 0));
+  valorEl.addEventListener('click', () => {
+    const inp = h('input', { class: `valor-input ${classe}`, type: 'text', inputmode: 'decimal', value: String(val).replace('.', ',') });
+    const confirmar = () => {
+      const n = numeroLivre(inp.value);
+      if (n != null && n >= 0 && n !== val) definir(hab, (o) => ({ ...o, [m.id]: n }));
+      else render();
+    };
+    inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') { inp.value = String(val); inp.blur(); } });
+    inp.addEventListener('blur', confirmar, { once: true });
+    valorEl.replaceWith(inp);
+    inp.focus();
+    inp.select();
+  });
+  return valorEl;
+}
+const somarNa = (hab, m) => (q) => definir(hab, (o) => ({ ...o, [m.id]: Math.max(0, Math.round(((Number(o[m.id]) || 0) + q) * 100) / 100) }));
+const passosDe = (m) => (m.passos?.length ? m.passos : [1]).filter((x) => x > 0);
+const menosDe = (m) => (m.menos?.filter((x) => x > 0).length ? m.menos.filter((x) => x > 0) : [passosDe(m)[0]]);
+
+/** Barra empilhada: um trecho por métrica, somando até a meta (anima do valor anterior). */
+function barraPilha(fracs, chave) {
+  let resto = 1;
+  const trechos = fracs.map((f, i) => {
+    const alvo = Math.max(0, Math.min(resto, f));
+    resto -= alvo;
+    const k = `${chave}|${i}`;
+    const de = reduzMovimento ? alvo : ULTIMO.has(k) ? ULTIMO.get(k) : 0;
+    ULTIMO.set(k, alvo);
+    const el = h('div', { class: `trecho t${i % 3}`, style: { width: `${de * 100}%` } });
+    if (de !== alvo) depoisDoPintar(() => (el.style.width = `${alvo * 100}%`));
+    return el;
+  });
+  return h('div', { class: `barra pilha ${resto <= 0.001 ? 'cheia' : ''}` }, trechos);
+}
+
+/**
+ * Métricas que somam para uma meta única (ex.: cardio em kcal = passos + andares de escada):
+ * o total em cima, e cada métrica embaixo com seus botões e quanto ela já rendeu.
+ */
+function corpoSoma(hab, v) {
+  const mt = metricaTotal(hab);
+  const total = totalSoma(hab, v);
+  const falta = mt.meta - total;
+  const casas = (x) => fmt(x, x < 10 ? 1 : 0);
+  const partes = hab.metricas.map((m) => {
+    const val = Number(v?.[m.id]) || 0;
+    const rendeu = parcela(m, val);
+    return h('div', { class: 'soma-parte' },
+      h('div', { class: 'soma-linha' },
+        h('span', { class: 'soma-nome' }, m.nome),
+        botaoValor(hab, m, val, 'pequeno'),
+        h('span', { class: 'soma-rende', title: `cada ${m.unidade || 'unidade'} vale ${fmt(m.vale, 3)} ${mt.unidade}` }, val ? `= ${casas(rendeu)} ${mt.unidade}` : `${fmt(m.vale, 3)} ${mt.unidade} cada`)),
+      h('div', { class: 'botoes' },
+        menosDe(m).map((q) => h('button', { class: 'b menos', disabled: val <= 0, onClick: () => somarNa(hab, m)(-q), 'aria-label': `Tirar ${q}` }, `−${fmt(q, 2)}`)),
+        passosDe(m).map((q) => h('button', { class: 'b mais', onClick: () => somarNa(hab, m)(q) }, `+${fmt(q, 2)}`))));
+  });
+  // o que ainda falta, traduzido em cada métrica: "≈ 11.600 passos ou 142 andares"
+  const redondo = (m) => (m.vale < 1 ? 100 : 1);
+  const equivalentes = falta > 0
+    ? hab.metricas.filter((m) => m.vale > 0).map((m) => fmtMetrica(Math.ceil(falta / m.vale / redondo(m)) * redondo(m), m))
+    : [];
+  return [
+    h('div', { class: 'met' },
+      h('div', { class: 'met-val' },
+        h('span', { class: 'valor-total' }, fmt(total, 0)),
+        h('span', { class: 'met-meta' }, `/ ${fmtMetrica(mt.meta, mt)}`),
+        !total ? null : falta > 0
+          ? h('span', { class: 'met-status' }, `faltam ${fmtMetrica(Math.ceil(falta), mt)}`)
+          : h('span', { class: 'met-status ok' }, 'meta batida')),
+      barraPilha(hab.metricas.map((m) => parcela(m, v?.[m.id]) / mt.meta), `${hab.id}|soma|${S.dia}`),
+      equivalentes.length ? h('div', { class: 'dica-hab' }, `${total ? 'falta' : 'meta'} ≈ ${equivalentes.join(' ou ')}`) : null),
+    h('div', { class: 'soma-partes' }, partes),
+  ];
+}
+
 function corpoNumero(hab, v) {
+  if (ehSoma(hab)) return corpoSoma(hab, v);
   return hab.metricas.map((m) => {
     const val = Number(v?.[m.id]) || 0;
     if (m.digitar) return metricaDigitada(hab, m, val);
-    const passos = (m.passos?.length ? m.passos : [1]).filter((x) => x > 0);
-    const somar = (q) => definir(hab, (o) => ({ ...o, [m.id]: Math.max(0, Math.round(((Number(o[m.id]) || 0) + q) * 100) / 100) }));
-    const emHoras = m.unidade === 'min' && m.meta >= 60;
-    const valorEl = h('button', { class: 'valor-btn', title: `Clique para digitar o valor exato${emHoras ? ' (em minutos)' : ''}` },
-      emHoras ? fmtMetrica(val, m) : fmt(val, m.decimal ? 1 : 0));
-    valorEl.addEventListener('click', () => {
-      const inp = h('input', { class: 'valor-input', type: 'text', inputmode: 'decimal', value: String(val).replace('.', ',') });
-      const confirmar = () => {
-        const n = numeroLivre(inp.value);
-        if (n != null && n >= 0 && n !== val) definir(hab, (o) => ({ ...o, [m.id]: n }));
-        else render();
-      };
-      inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') { inp.value = String(val); inp.blur(); } });
-      inp.addEventListener('blur', confirmar, { once: true });
-      valorEl.replaceWith(inp);
-      inp.focus();
-      inp.select();
-    });
+    const passos = passosDe(m);
+    const somar = somarNa(hab, m);
+    const valorEl = botaoValor(hab, m, val);
     const alvo = alvoPomodoro();
     const ehAlvo = alvo && alvo.hab.id === hab.id && alvo.m.id === m.id;
     const cronAqui = S.estado.cronometro?.habitoId === hab.id && S.estado.cronometro?.metricaId === m.id;
-    const cron = ehAlvo ? [botaoPomodoro(), cronAqui ? botaoCronometro(hab, m) : null] : m.cronometro ? botaoCronometro(hab, m) : null;
+    const eHoje = S.dia === S.hoje;
+    const cron = ehAlvo
+      ? [eHoje ? botaoPomodoro() : botaoSessaoDoDia(), cronAqui ? botaoCronometro(hab, m) : null]
+      : m.cronometro && (eHoje || cronAqui) ? botaoCronometro(hab, m) : null;
     const porMat = ehAlvo ? resumoPorMateriaDoDia() : null;
     return h('div', { class: 'met' },
       hab.metricas.length > 1 && h('div', { class: 'met-nome' }, m.nome),
       h('div', { class: 'met-val' }, valorEl, h('span', { class: 'met-meta' }, `/ ${fmtMetrica(m.meta, m)}`)),
       barraAnimada(val / m.meta, `${hab.id}|${m.id}|${S.dia}`),
       h('div', { class: 'botoes' },
-        (m.menos?.filter((x) => x > 0).length ? m.menos.filter((x) => x > 0) : [passos[0]]).map((q) =>
+        menosDe(m).map((q) =>
           h('button', { class: 'b menos', disabled: val <= 0, onClick: () => somar(-q), 'aria-label': `Tirar ${q}` }, `−${fmt(q, 2)}`)),
         passos.map((q) => h('button', { class: 'b mais', onClick: () => somar(q) }, `+${fmt(q, 2)}`)),
         cron),
@@ -466,6 +622,11 @@ function botaoPomodoro() {
   const tema = temaAtual();
   return h('button', { class: `b cron pomo ${t ? 'rodando' : ''}`, title: 'Abrir o modo foco (pomodoro)', onClick: abrirFoco },
     h('span', null, tema.marca), t ? h('span', { 'data-pomo-tempo': '' }, '…') : 'pomodoro');
+}
+/** Dia passado: no lugar do pomodoro, lança (ou apaga) sessões de estudo daquele dia. */
+function botaoSessaoDoDia() {
+  return h('button', { class: 'b cron', title: 'Lançar uma sessão de estudo que ficou sem registrar (com a matéria)', onClick: () => abrirSessoesDoDia(S.dia) },
+    svg(ICONES.mais), 'sessão');
 }
 function resumoPorMateriaDoDia() {
   const ss = S.dia === S.hoje ? sessoesDoDia() : sessoesDoDia(S.dia);
@@ -548,7 +709,7 @@ function corpoNiveis(hab, v) {
   const nivel = v?.nivel || 0;
   const nota = hab.nota
     ? h('input', {
-        class: 'nota-input', placeholder: 'o que você fez hoje?', value: v?.nota || '', maxlength: '200',
+        class: 'nota-input', placeholder: S.dia === S.hoje ? 'o que você fez hoje?' : 'o que você fez nesse dia?', value: v?.nota || '', maxlength: '200',
         onChange: (ev) => definir(hab, (o) => ({ ...o, nota: ev.target.value.trim() })),
         onKeydown: (ev) => { if (ev.key === 'Enter') ev.target.blur(); },
       })
@@ -566,8 +727,19 @@ function corpoNiveis(hab, v) {
 function renderTodos() {
   manterCampos($('#todos'), desenharTodos);
 }
+// O card mostra as tarefas do dia aberto (S.dia): o ‹ volta pra achar o que ficou esquecido.
+const nomeDiaTodos = (d) => `Tarefas de ${nomeRelativo(d) || dataMedia(d)}`;
+
+/** Traz uma tarefa de um dia passado para hoje (conta como adiada). */
+function trazerPraHoje(t, hoje) {
+  t.dia = hoje;
+  t.manter = false;
+  t.adiado = (t.adiado || 0) + 1;
+}
+
 function desenharTodos() {
   const e = S.estado, hoje = S.hoje;
+  if (S.dia < hoje) return desenharTodosPassado(S.dia);
   const raiz = $('#todos');
   const lista = e.todos.filter((t) => t.dia === hoje).sort((a, b) => (a.feito - b.feito) || (b.manter - a.manter) || (a.criado - b.criado));
   const feitas = lista.filter((t) => t.feito).length;
@@ -586,13 +758,81 @@ function desenharTodos() {
     },
   }, entrada, h('button', { type: 'submit', 'aria-label': 'Adicionar' }, svg(ICONES.mais)));
 
+  const voltar = h('button', {
+    class: 'todos-nav', title: 'Voltar para ontem', 'aria-label': 'Voltar para ontem',
+    onClick: () => irPara(somaDias(hoje, -1)),
+  }, svg(ICONES.esq));
+
   raiz.replaceChildren(
-    h('div', { class: 'todos-topo' }, h('h2', null, 'Tarefas de hoje'), h('span', { class: 'todos-conta' }, lista.length ? `${feitas}/${lista.length}` : '')),
+    h('div', { class: 'todos-topo' }, h('h2', null, voltar, 'Tarefas de hoje'), h('span', { class: 'todos-conta' }, lista.length ? `${feitas}/${lista.length}` : '')),
     form,
     lista.length
       ? h('ul', { class: 'todo-lista' }, lista.map(itemTodo))
       : h('div', { class: 'todos-vazio' }, 'Nada por aqui. O que precisa sair hoje?'),
     h('p', { class: 'todos-pe' }, 'As tarefas valem só pra hoje: à meia-noite elas somem. Clique no ', h('b', null, '📌'), ' de uma tarefa para ela ficar até amanhã.')
+  );
+  if (focoAntes) entrada.focus();
+}
+
+/** Um dia passado: dá pra conferir, marcar como feita (se esqueceu de marcar) ou trazer pra hoje. */
+function desenharTodosPassado(dia) {
+  const e = S.estado, hoje = S.hoje;
+  const raiz = $('#todos');
+  const lista = e.todos.filter((t) => t.dia === dia).sort((a, b) => (a.feito - b.feito) || (a.criado - b.criado));
+  const feitas = lista.filter((t) => t.feito).length;
+  const pendentes = lista.filter((t) => !t.feito).length;
+  const ir = (d) => irPara(d > hoje ? hoje : d);
+  const focoAntes = document.activeElement?.id === 'todo-passada';
+
+  // o que foi feito e ficou sem registrar entra já marcado
+  const entrada = h('input', { id: 'todo-passada', placeholder: 'Registrar algo que você fez nesse dia…', maxlength: '200', autocomplete: 'off', 'data-campo': `todo-passada-${dia}` });
+  const form = h('form', {
+    class: 'todo-form',
+    onSubmit: (ev) => {
+      ev.preventDefault();
+      const texto = entrada.value.trim();
+      if (!texto) return;
+      entrada.value = '';
+      mudar((st) => st.todos.push({ id: 't' + uid(), texto, feito: true, dia, manter: false, adiado: 0, criado: Date.now() }));
+      $('#todo-passada')?.focus();
+    },
+  }, entrada, h('button', { type: 'submit', 'aria-label': 'Registrar' }, svg(ICONES.mais)));
+
+  const nav = h('div', { class: 'todos-navs' },
+    h('button', { class: 'todos-nav', title: 'Dia anterior', 'aria-label': 'Dia anterior', onClick: () => ir(somaDias(dia, -1)) }, svg(ICONES.esq)),
+    h('button', { class: 'todos-nav', title: 'Próximo dia', 'aria-label': 'Próximo dia', onClick: () => ir(somaDias(dia, 1)) }, svg(ICONES.dir)));
+
+  const item = (t) => {
+    const alterar = (fn) => mudar((st) => { const x = st.todos.find((y) => y.id === t.id); if (x) fn(x); });
+    return h('li', { class: `todo passado ${t.feito ? 'feito' : ''}` },
+      h('button', {
+        class: 'caixa', 'aria-label': t.feito ? 'Desmarcar' : 'Marcar como feita',
+        onClick: () => { alterar((x) => (x.feito = !x.feito)); if (!t.feito && S.estado.perfil.som !== false) som('tique'); },
+      }, svg(ICONES.check)),
+      h('div', { class: 'todo-corpo' }, h('div', { class: 'todo-texto' }, t.texto)),
+      h('div', { class: 'todo-acoes' },
+        !t.feito && h('button', {
+          class: 'mover', title: 'Trazer pra hoje', 'aria-label': 'Trazer pra hoje',
+          onClick: () => alterar((x) => trazerPraHoje(x, hoje)),
+        }, h('span', { class: 'ic-txt' }, '→H')),
+        h('button', { title: 'Apagar', 'aria-label': 'Apagar tarefa', onClick: () => mudar((st) => (st.todos = st.todos.filter((y) => y.id !== t.id))) }, svg(ICONES.x))));
+  };
+
+  raiz.replaceChildren(
+    h('div', { class: 'todos-topo' },
+      h('h2', null, nomeDiaTodos(dia)),
+      h('span', { class: 'todos-conta' }, lista.length ? `${feitas}/${lista.length}` : ''),
+      nav),
+    form,
+    lista.length
+      ? h('ul', { class: 'todo-lista' }, lista.map(item))
+      : h('div', { class: 'todos-vazio' }, 'Nenhuma tarefa nesse dia.'),
+    pendentes > 1 ? h('button', {
+      class: 'todos-trazer',
+      onClick: () => mudar((st) => { for (const x of st.todos) if (x.dia === dia && !x.feito) trazerPraHoje(x, hoje); }),
+    }, `Trazer as ${pendentes} pendentes pra hoje`) : '',
+    h('p', { class: 'todos-pe' }, 'Esqueceu alguma? Clique em ', h('b', null, '→H'), ' para trazer pra hoje. ',
+      h('a', { href: '#', class: 'todos-volta', onClick: (ev) => { ev.preventDefault(); ir(hoje); } }, 'Voltar pra hoje'))
   );
   if (focoAntes) entrada.focus();
 }
@@ -637,10 +877,15 @@ function itemTodo(t) {
 // =====================================================================
 // ano em revisão (mapa de calor)
 // =====================================================================
+let assinaturaAno = '';
 function renderAno() {
   const e = S.estado, ano = S.ano;
   const raiz = $('#ano');
   const lista = ativos(e);
+  // tudo o que o mapa mostra; se nada disso mudou, o mapa desenhado continua certo
+  const assinatura = JSON.stringify([ano, S.hoje, S.dia, limiar(), lista, e.dias]);
+  if (assinatura === assinaturaAno && raiz.firstChild) return;
+  assinaturaAno = assinatura;
   if (!lista.length) { raiz.replaceChildren(); return; }
 
   const primeiro = `${ano}-01-01`, ultimo = `${ano}-12-31`;
@@ -683,7 +928,7 @@ function renderAno() {
       else {
         const r = b.celula(d);
         if (r.descanso) cls += ' descanso';
-        else if (r.p > 0) bg = misturar(VAZIO, b.cor, 0.22 + 0.78 * Math.min(1, r.p));
+        else if (r.p > 0) bg = tomCelula(b.cor, r.p);
       }
       if (d === S.hoje) cls += ' hoje';
       if (d === S.dia && S.dia !== S.hoje) cls += ' sel';
@@ -711,8 +956,8 @@ function renderAno() {
       h('h2', { class: 'secao' }, `${ano} em revisão`),
       h('button', { class: 'btn-icone', 'aria-label': 'Próximo ano', disabled: ano >= anoAtual + 1, onClick: () => { S.ano++; renderAno(); } }, svg(ICONES.dir)),
       h('div', { class: 'legenda' }, 'menos',
-        [0, 0.25, 0.5, 0.75, 1].map((p) => h('i', { style: { background: p ? misturar(VAZIO, '#a1a1ad', 0.22 + 0.78 * p) : VAZIO } })),
-        'mais', h('span', { class: 'sep' }), h('i', { style: { background: VAZIO, boxShadow: 'inset 0 0 0 2px #6c6c78' } }), 'descanso')),
+        [0, 0.25, 0.5, 0.75, 1].map((p) => h('i', { style: { background: p ? tomCelula('#c4c4d0', p) : 'var(--vazio)' } })),
+        'mais', h('span', { class: 'sep' }), h('i', { class: 'leg-descanso' }), 'descanso')),
     h('div', { class: 'mapas' }, mapas));
 
   // rola cada mapa até o mês atual (útil em telas estreitas)
@@ -783,7 +1028,7 @@ function renderBotaoPomodoro() {
 function aplicarVista() {
   const materias = location.hash === '#materias';
   document.body.classList.toggle('vista-materias', materias);
-  for (const a of document.querySelectorAll('.topo-nav a')) a.classList.toggle('ativo', materias ? a.getAttribute('href') === '#materias' : a.getAttribute('href') === '#registro');
+  aposDesenhar(); // a aba ativa e a lente do menu acompanham a vista e a seção que está na tela
 }
 
 // =====================================================================
@@ -858,6 +1103,7 @@ async function iniciar() {
   rolarSemanais(S.estado, S.hoje);
   iniciarClaudinho({ contexto: contextoClaudinho, temChave: () => S.claude.configurada });
   render();
+  iniciarMovimento();
   if (!S.estado.onboardingFeito) abrirOnboarding();
   else setTimeout(() => reagir('abriu'), 2500);
 
