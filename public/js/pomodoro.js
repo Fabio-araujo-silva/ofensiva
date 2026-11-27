@@ -1,7 +1,7 @@
 // Pomodoro com tags de matéria. O timer fica salvo no estado (sobrevive a recarregar a página),
 // cada sessão de foco é registrada com a matéria e os minutos somam no hábito de estudo.
-import { h, svg, ICONES, uid, pad, somaDias, inicioSemana, LETRAS_SEMANA, clamp } from './util.js';
-import { S, mudar, avisar, botaoConfirmar } from './store.js';
+import { h, svg, ICONES, uid, pad, somaDias, inicioSemana, LETRAS_SEMANA, clamp, dataLonga } from './util.js';
+import { S, mudar, avisar, botaoConfirmar, abrirModal } from './store.js';
 import { ativos, fmtMetrica, detalharSessao } from './habitos.js';
 import { som } from './efeitos.js';
 import { reagir } from './claudinho.js';
@@ -140,17 +140,20 @@ let retomando = false;
 function fimPausaRapida() {
   if (retomando) return;
   retomando = true;
-  mudar((e) => {
-    const x = e.pomodoro.timer;
-    if (!x?.pausadoEm || !x.pausaRapidaAte) return;
-    const volta = Math.min(agora(), x.pausaRapidaAte);
-    const p = Math.max(0, volta - x.pausadoEm);
-    x.inicio += p;
-    x.pausasMs = (x.pausasMs || 0) + p;
-    x.pausadoEm = null;
-    x.pausaRapidaAte = null;
-  });
-  retomando = false;
+  try {
+    mudar((e) => {
+      const x = e.pomodoro.timer;
+      if (!x?.pausadoEm || !x.pausaRapidaAte) return;
+      const volta = Math.min(agora(), x.pausaRapidaAte);
+      const p = Math.max(0, volta - x.pausadoEm);
+      x.inicio += p;
+      x.pausasMs = (x.pausasMs || 0) + p;
+      x.pausadoEm = null;
+      x.pausaRapidaAte = null;
+    });
+  } finally {
+    retomando = false;
+  }
   if (S.estado.perfil.som !== false) som('ok');
   avisar('De volta ao foco 🍅');
 }
@@ -171,33 +174,42 @@ export function parar(registrarParcial = true) {
 }
 
 let concluindo = false;
-/** Fim natural da fase (ou "pular"). */
+/**
+ * Fim da fase: natural (o tempo acabou) ou antecipado (botão Encerrar).
+ * Um foco encerrado antes registra os minutos feitos e conta o ciclo; com menos de 1 min não registra
+ * nada nem conta ciclo (volta pronto para um foco novo). Devolve { fase, min, proxima }.
+ */
 export function concluirFase(natural = true) {
   const t = P().timer;
-  if (!t || concluindo) return;
+  if (!t || concluindo) return null;
   // se o fim foi percebido bem depois (aba fechada/dormindo), não emenda nem notifica como se fosse agora
   const atrasado = natural && t.duracaoMs != null && -restante(t) > 5000;
   concluindo = true;
   const c = cfg();
   let min = 0, proxima = 'foco';
-  mudar((e) => {
-    const p = e.pomodoro;
-    const x = p.timer;
-    if (x.fase === 'foco') {
-      min = registrar(e, natural ? Math.round(x.duracaoMs / 60000) : Math.floor(decorrido(x) / 60000), x, natural ? 'completo' : 'interrompido');
-      p.ciclo = (p.ciclo || 0) + 1;
-      proxima = p.ciclo % c.ciclos === 0 ? 'longa' : 'curta';
-    } else if (x.fase === 'livre') {
-      min = registrar(e, Math.floor(decorrido(x) / 60000), x, 'livre');
-      proxima = 'livre';
-    } else {
-      if (x.fase === 'longa') p.ciclo = 0;
-      proxima = 'foco';
-    }
-    p.proxima = proxima;
-    p.timer = null;
-  });
-  concluindo = false;
+  try {
+    mudar((e) => {
+      const p = e.pomodoro;
+      const x = p.timer;
+      if (x.fase === 'foco') {
+        min = registrar(e, natural ? Math.round(x.duracaoMs / 60000) : Math.floor(decorrido(x) / 60000), x, natural ? 'completo' : 'interrompido');
+        if (natural || min > 0) {
+          p.ciclo = (p.ciclo || 0) + 1;
+          proxima = p.ciclo % c.ciclos === 0 ? 'longa' : 'curta';
+        } else proxima = 'foco';
+      } else if (x.fase === 'livre') {
+        min = registrar(e, Math.floor(decorrido(x) / 60000), x, 'livre');
+        proxima = 'livre';
+      } else {
+        if (x.fase === 'longa') p.ciclo = 0;
+        proxima = 'foco';
+      }
+      p.proxima = proxima;
+      p.timer = null;
+    });
+  } finally {
+    concluindo = false;
+  }
 
   if (natural && !atrasado) {
     if (S.estado.perfil.som !== false) som(temaDe(materia(t.tag)).som || 'sino');
@@ -212,6 +224,20 @@ export function concluirFase(natural = true) {
   if (t.fase === 'foco' && min) reagir('pomodoro', { minutos: min, materia: materia(t.tag)?.nome || null, proxima: TEMAS.padrao.titulos[proxima].toLowerCase(), hoje: minutosHoje() });
   if (atrasado && t.fase === 'foco' && min) avisar(`O pomodoro de ${materia(t.tag)?.nome || 'estudo'} terminou enquanto o app estava fechado: +${minTxt(min)} registrados.`, 6000);
   if (c.autoIniciar && natural && !atrasado && document.visibilityState === 'visible' && t.fase !== 'livre') setTimeout(() => !P().timer && iniciar(proxima), 1200);
+  return { fase: t.fase, min, proxima };
+}
+
+/** Botão Encerrar: termina a fase agora (antes do tempo) e diz o que aconteceu. */
+export function encerrarAgora() {
+  const t = P().timer;
+  if (!t) return;
+  const nomeMat = materia(t.tag)?.nome || 'estudo';
+  const r = concluirFase(false);
+  if (!r) return;
+  const depois = TEMAS.padrao.titulos[r.proxima].toLowerCase();
+  if (r.fase === 'foco') avisar(r.min ? `Foco encerrado: +${minTxt(r.min)} de ${nomeMat} · agora: ${depois}` : 'Foco encerrado antes de 1 min: nada registrado.', 5000);
+  else if (r.fase === 'livre') avisar(r.min ? `+${minTxt(r.min)} de ${nomeMat} registrados` : 'Menos de 1 min: nada registrado.', 4000);
+  else avisar(`Pausa encerrada · agora: ${depois}`, 3500);
 }
 
 // =====================================================================
@@ -240,16 +266,20 @@ let painelConfig = false;
 let novaMateriaTxt = '';
 const raizFoco = () => document.getElementById('foco-raiz');
 
+// O modo foco cobre a tela inteira, então a página por trás não é travada (travar/destravar a rolagem
+// com overflow: hidden tirava da placa as animações presas à rolagem e a página ficava mais lenta depois).
+// Só guardamos onde a página estava e voltamos para lá ao fechar.
+let rolagemAntes = 0;
 export function abrirFoco() {
+  if (!aberto) rolagemAntes = scrollY;
   aberto = true;
-  document.body.style.overflow = 'hidden';
   renderFoco();
 }
 export function fecharFoco() {
   aberto = false;
-  document.body.style.overflow = '';
   raizFoco().replaceChildren();
   renderPilula();
+  if (Math.abs(scrollY - rolagemAntes) > 1) scrollTo({ top: rolagemAntes, behavior: 'instant' });
 }
 
 function flash() {
@@ -272,12 +302,11 @@ function anel(fase, tema) {
     html: `<svg viewBox="0 0 320 320" aria-hidden="true">
       <defs>
         <linearGradient id="foco-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${f.cor2}"/><stop offset="1" stop-color="${f.cor}"/></linearGradient>
-        <filter id="foco-brilho" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6"/></filter>
       </defs>
       <circle cx="160" cy="160" r="${R}" class="fa-trilho"/>
       ${Array.from({ length: 60 }, (_, i) => { const a = (i / 60) * Math.PI * 2; const r1 = i % 5 ? 123 : 119, r2 = 127; return `<line x1="${160 + r1 * Math.sin(a)}" y1="${160 - r1 * Math.cos(a)}" x2="${160 + r2 * Math.sin(a)}" y2="${160 - r2 * Math.cos(a)}" class="fa-marca${i % 5 ? '' : ' forte'}"/>`; }).join('')}
       ${mostrador}
-      <circle cx="160" cy="160" r="${R}" class="fa-brilho" stroke="url(#foco-grad)" filter="url(#foco-brilho)" stroke-dasharray="${CIRC}" stroke-dashoffset="${CIRC}"/>
+      <circle cx="160" cy="160" r="${R}" class="fa-brilho" stroke="url(#foco-grad)" stroke-dasharray="${CIRC}" stroke-dashoffset="${CIRC}"/>
       <circle cx="160" cy="160" r="${R}" class="fa-prog" stroke="url(#foco-grad)" stroke-dasharray="${CIRC}" stroke-dashoffset="${CIRC}"/>
       <circle cx="160" cy="20" r="9" class="fa-ponta" fill="${f.cor2}"/>
     </svg>`,
@@ -329,14 +358,30 @@ export function renderFoco() {
     ? h('div', { class: 'foco-rapida' }, h('span', null, '🚻 pausa rápida'), h('b', { id: 'foco-rapida-tempo' }, mmss(t.pausaRapidaAte - agora())),
         h('span', { class: 'foco-rapida-sub' }, 'volta sozinho'), h('button', { onClick: pausarOuRetomar }, 'voltar agora'))
     : null;
+  // cada botão pequeno tem a legenda embaixo: nada de adivinhar ícone
+  const ctl = (legenda, botao) => h('div', { class: 'foco-ctl' }, botao, h('span', { 'aria-hidden': 'true' }, legenda));
+  const icParar = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="6.5" width="11" height="11" rx="2.6"/></svg>';
+  const icPular = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 6.2v11.6a.8.8 0 0 0 1.25.66L14 13.1V17.8a.8.8 0 0 0 1.25.66l7.4-5.8a.8.8 0 0 0 0-1.32l-7.4-5.8A.8.8 0 0 0 14 6.2v4.7L6.25 5.54A.8.8 0 0 0 5 6.2z"/></svg>';
+  const icReiniciar = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5"/><path d="M4.5 4.5v4h4"/></svg>';
+  const ultimo = t
+    ? ctl('encerrar', h('button', {
+        class: 'foco-btn encerrar', 'aria-label': 'Encerrar agora',
+        title: fase === 'foco' ? 'Encerrar este foco agora: registra o tempo feito e vai pra pausa'
+          : fase === 'livre' ? 'Parar e registrar o tempo' : 'Encerrar a pausa e voltar ao foco',
+        onClick: encerrarAgora,
+      }, svg(icParar)))
+    : modoLivre
+      ? ctl('parar', h('button', { class: 'foco-btn', 'aria-label': 'Parar', disabled: true }, svg(icParar)))
+      : ctl('pular', h('button', {
+          class: 'foco-btn', 'aria-label': 'Pular para a próxima fase', title: fase === 'foco' ? 'Pular para a pausa' : 'Pular a pausa',
+          onClick: () => mudar((e) => (e.pomodoro.proxima = fase === 'foco' ? 'curta' : 'foco')),
+        }, svg(icPular)));
   const controles = h('div', { class: 'foco-controles' },
-    h('button', { class: 'foco-btn', title: 'Reiniciar esta fase', 'aria-label': 'Reiniciar fase', disabled: !t, onClick: reiniciarFase }, '↺'),
-    h('button', { class: 'foco-btn rapida', title: `Pausa rápida de ${c.pausaRapida} min (banheiro, água…) — retoma sozinha`, 'aria-label': 'Pausa rápida', disabled: !podeRapida, onClick: pausaRapida }, '🚻'),
-    h('button', { class: `foco-play ${rodando ? 'rodando' : ''}`, 'aria-label': rodando ? 'Pausar' : 'Começar', title: 'Espaço', onClick: () => (t ? pausarOuRetomar() : iniciar(fase)) },
+    ctl('reiniciar', h('button', { class: 'foco-btn', title: 'Reiniciar esta fase', 'aria-label': 'Reiniciar fase', disabled: !t, onClick: reiniciarFase }, svg(icReiniciar))),
+    ctl('pausa rápida', h('button', { class: 'foco-btn rapida', title: `Pausa rápida de ${c.pausaRapida} min (banheiro, água…) — retoma sozinha`, 'aria-label': 'Pausa rápida', disabled: !podeRapida, onClick: pausaRapida }, '🚻')),
+    h('button', { class: `foco-play ${rodando ? 'rodando' : ''}`, 'aria-label': rodando ? 'Pausar' : t ? 'Continuar' : 'Começar', title: 'Espaço', onClick: () => (t ? pausarOuRetomar() : iniciar(fase)) },
       svg(rodando ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4.2" height="14" rx="1.4"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.4"/></svg>' : ICONES.play)),
-    modoLivre
-      ? h('button', { class: 'foco-btn', title: 'Parar e registrar', 'aria-label': 'Parar e registrar', disabled: !t, onClick: () => concluirFase(false) }, '■')
-      : h('button', { class: 'foco-btn', title: t ? (fase === 'foco' ? 'Concluir agora (registra o tempo feito)' : 'Pular pausa') : 'Pular para a próxima fase', 'aria-label': 'Pular', onClick: () => (t ? concluirFase(false) : mudar((e) => (e.pomodoro.proxima = fase === 'foco' ? 'curta' : 'foco'))) }, '⏭'));
+    ultimo);
 
   // ----- ciclos -----
   const feitos = p.cicloDia === S.hoje ? p.ciclo || 0 : 0;
@@ -463,6 +508,77 @@ function apagarSessao(id) {
   });
 }
 
+// =====================================================================
+// sessões de um dia passado: conferir, apagar e lançar o que ficou sem registrar
+// =====================================================================
+/** Sessão lançada na mão (sem timer). Sem horário informado, não entra nas estatísticas por hora. */
+function registrarManual(e, { dia, tag, minutos, hora }) {
+  const alvo = alvoPomodoro(e);
+  const destino = alvo ? { habitoId: alvo.hab.id, metricaId: alvo.m.id } : null;
+  const inicio = new Date(`${dia}T${hora || '00:00'}:00`).getTime();
+  e.sessoes.push(detalharSessao({
+    id: 'p' + uid(), dia, tag: tag || null, assunto: null, minutos,
+    inicio, fim: hora ? inicio + minutos * 60000 : null, tipo: 'manual', destino, desfecho: 'manual',
+    semHorario: !hora, planejadoMin: null, pausadoMin: 0, pausas: 0, pausasRapidas: 0,
+    materiaNome: e.materias.find((m) => m.id === tag)?.nome || null,
+  }));
+  if (destino) {
+    const d = (e.dias[dia] ??= {});
+    const v = (d[destino.habitoId] ??= {});
+    v[destino.metricaId] = (Number(v[destino.metricaId]) || 0) + minutos;
+  }
+}
+
+const MARCA_TIPO = { pomodoro: '🍅', livre: '⏱', manual: '✍' };
+export function abrirSessoesDoDia(dia) {
+  const corpo = h('div', { class: 'sessoes-dia' });
+  let tag = materia(P().tag) ? P().tag : S.estado.materias[0]?.id || '';
+  let minutos = '', hora = '';
+  const desenhar = () => {
+    const alvo = alvoPomodoro();
+    const lista = sessoesDoDia(dia).sort((a, b) => a.inicio - b.inicio);
+    const total = lista.reduce((a, s) => a + s.minutos, 0);
+    const selMat = h('select', { class: 'entrada cresce', 'aria-label': 'Matéria', onChange: (ev) => (tag = ev.target.value) },
+      S.estado.materias.map((m) => h('option', { value: m.id, selected: m.id === tag }, m.nome)),
+      h('option', { value: '', selected: !tag }, 'sem matéria'));
+    const inpMin = h('input', { class: 'entrada sd-min', type: 'number', min: '1', max: '960', step: '1', placeholder: 'minutos', value: minutos, 'aria-label': 'Minutos estudados', onInput: (ev) => (minutos = ev.target.value) });
+    const inpHora = h('input', { class: 'entrada', type: 'time', value: hora, 'aria-label': 'Horário em que começou (opcional)', title: 'Horário em que começou (opcional)', onInput: (ev) => (hora = ev.target.value) });
+    const lancar = (ev) => {
+      ev.preventDefault();
+      const n = Math.round(Number(minutos));
+      if (!(n >= 1 && n <= 960)) { inpMin.focus(); return; }
+      const dados = { dia, tag, minutos: n, hora };
+      mudar((e) => registrarManual(e, dados));
+      avisar(`+${minTxt(n)} de ${materia(tag)?.nome || 'estudo'} em ${dataLonga(dia)}`);
+      minutos = '';
+      hora = '';
+      desenhar();
+      corpo.querySelector('.sd-min')?.focus();
+    };
+    corpo.replaceChildren(
+      lista.length
+        ? h('ul', { class: 'sd-lista' }, lista.map((s) => {
+            const mat = materia(s.tag);
+            return h('li', null,
+              h('span', { class: 'sd-hora' }, s.semHorario ? '—' : s.horaInicio || ''),
+              h('i', { style: { background: mat?.cor || '#6c6c78' } }),
+              h('span', { class: 'cresce' }, mat?.nome || s.materiaNome || 'sem matéria'),
+              h('span', { class: 'sd-tipo', title: s.tipo === 'manual' ? 'lançada depois' : s.tipo }, MARCA_TIPO[s.tipo] || ''),
+              h('b', null, minTxt(s.minutos)),
+              h('button', { title: 'Apagar sessão (tira os minutos do hábito)', 'aria-label': 'Apagar sessão', onClick: () => { apagarSessao(s.id); desenhar(); } }, '×'));
+          }), h('li', { class: 'sd-total' }, h('span', { class: 'cresce' }, 'total do dia'), h('b', null, minTxt(total))))
+        : h('p', { class: 'sd-vazio' }, 'Nenhuma sessão registrada nesse dia.'),
+      h('form', { class: 'sd-form', onSubmit: lancar },
+        h('span', { class: 'rot' }, 'Lançar uma sessão que ficou sem registrar'),
+        h('div', { class: 'linha' }, selMat, inpMin, inpHora, h('button', { class: 'btn-primario', type: 'submit' }, 'Lançar'))),
+      h('p', { class: 'ajuda' }, alvo
+        ? `Os minutos somam em ${alvo.hab.emoji} ${alvo.hab.nome} nesse dia e contam para a matéria. O horário é opcional.`
+        : 'O pomodoro não está ligado a nenhum hábito: a sessão conta só para a matéria.'));
+  };
+  desenhar();
+  abrirModal(`Estudo de ${dataLonga(dia)}`, corpo);
+}
+
 function painelDeConfig() {
   const c = cfg();
   const num = (chave, rot, min, max) => h('label', { class: 'fc-num' }, h('span', null, rot),
@@ -541,21 +657,33 @@ export function tique() {
   if (!livre && resta <= 0 && !t.pausadoEm) { concluirFase(true); return; }
   const txt = mmss(livre ? decorrido(t) : resta);
   const frac = livre ? (decorrido(t) % 3600000) / 3600000 : clamp(1 - resta / t.duracaoMs, 0, 1);
-  document.title = `${t.pausadoEm ? '❚❚ ' : ''}${txt} · ${TEMAS.padrao.titulos[t.fase].toLowerCase()} — Ofensiva`;
-  const tempo = document.getElementById('foco-tempo');
-  if (tempo) tempo.textContent = txt;
-  const off = String(CIRC * (1 - frac));
-  for (const sel of ['.fa-prog', '.fa-brilho']) document.querySelector(sel)?.setAttribute('stroke-dashoffset', off);
+  // Roda 4x por segundo, mas o texto só muda 1x: só escreve no DOM o que mudou
+  // (cada escrita de texto força o navegador a refazer o layout, e isso pesava na rolagem).
+  const titulo = `${t.pausadoEm ? '❚❚ ' : ''}${txt} · ${TEMAS.padrao.titulos[t.fase].toLowerCase()} — Ofensiva`;
+  if (document.title !== titulo) document.title = titulo;
+  const escrever = (el) => {
+    if (!el || el.textContent === txt) return;
+    if (el.textContent.length !== txt.length) el.style.setProperty('--n', String(txt.length));
+    el.textContent = txt;
+  };
+  escrever(document.getElementById('foco-tempo'));
+  escrever(document.getElementById('pilula-tempo'));
+  for (const el of document.querySelectorAll('[data-pomo-tempo]')) escrever(el);
+  const off = String(Math.round(CIRC * (1 - frac) * 10) / 10);
+  for (const sel of ['.fa-prog', '.fa-brilho']) {
+    const el = document.querySelector(sel);
+    if (el && el.getAttribute('stroke-dashoffset') !== off) el.setAttribute('stroke-dashoffset', off);
+  }
   const ponta = document.querySelector('.fa-ponta');
   if (ponta) {
     const a = frac * Math.PI * 2;
-    ponta.setAttribute('cx', String(160 + R * Math.sin(a)));
-    ponta.setAttribute('cy', String(160 - R * Math.cos(a)));
+    const cx = (160 + R * Math.sin(a)).toFixed(1), cy = (160 - R * Math.cos(a)).toFixed(1);
+    if (ponta.getAttribute('cx') !== cx) ponta.setAttribute('cx', cx);
+    if (ponta.getAttribute('cy') !== cy) ponta.setAttribute('cy', cy);
   }
-  const pt = document.getElementById('pilula-tempo');
-  if (pt) pt.textContent = txt;
-  document.querySelector('.pilula-prog')?.style.setProperty('width', `${frac * 100}%`);
-  for (const el of document.querySelectorAll('[data-pomo-tempo]')) el.textContent = txt;
+  const prog = document.querySelector('.pilula-prog');
+  const escala = `scaleX(${frac.toFixed(3)})`;
+  if (prog && prog.style.transform !== escala) prog.style.transform = escala;
 }
 setInterval(tique, 250);
 

@@ -247,10 +247,11 @@ export function detalharSessao(s) {
   const ini = new Date(s.inicio);
   if (s.diaSemana == null) s.diaSemana = (ini.getDay() + 6) % 7; // 0 = segunda … 6 = domingo
   if (!s.diaSemanaNome) s.diaSemanaNome = DIAS_SEMANA[s.diaSemana];
+  if (!s.desfecho) s.desfecho = s.tipo === 'livre' ? 'livre' : s.tipo === 'manual' ? 'manual' : 'completo';
+  if (s.semHorario) return s; // lançada depois, sem horário: não inventa hora para as estatísticas
   if (!s.horaInicio) s.horaInicio = hhmm(s.inicio);
   if (!s.horaFim && s.fim) s.horaFim = hhmm(s.fim);
   if (s.hora == null) s.hora = ini.getHours(); // hora cheia, p/ agrupar por faixa do dia
-  if (!s.desfecho) s.desfecho = s.tipo === 'livre' ? 'livre' : 'completo';
   return s;
 }
 
