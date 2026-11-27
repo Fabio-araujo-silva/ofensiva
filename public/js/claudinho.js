@@ -41,6 +41,9 @@ let historico = [];
 let avisouSemChave = false;
 let arrasto = null;
 
+/** No celular, a barra de abas flutua no rodapé: o Claudinho fica acima dela. */
+const rodape = () => (innerWidth <= 900 ? 84 : 0);
+
 export function iniciarClaudinho(o) {
   opts = o;
   const raiz = document.getElementById('claudinho-raiz');
@@ -48,11 +51,12 @@ export function iniciarClaudinho(o) {
     h('div', { class: 'claudinho-corpo', html: SVG_CLAUDINHO }),
     h('span', { class: 'zzz' }, 'z z'));
   raiz.append(el);
-  pos = { x: innerWidth - 130, y: innerHeight - 170 };
+  pos = { x: innerWidth - 130, y: innerHeight - 170 - rodape() };
   if (dormindo) estacionar();
   el.classList.toggle('dormindo', dormindo);
 
   el.addEventListener('pointerdown', (e) => {
+    parar();
     arrasto = { x0: e.clientX, y0: e.clientY, px: pos.x, py: pos.y, moveu: false };
     el.setPointerCapture(e.pointerId);
   });
@@ -62,7 +66,7 @@ export function iniciarClaudinho(o) {
     if (Math.abs(dx) + Math.abs(dy) > 6) arrasto.moveu = true;
     if (arrasto.moveu) {
       pos.x = clamp(arrasto.px + dx, 4, innerWidth - 76);
-      pos.y = clamp(arrasto.py + dy, 64, innerHeight - 82);
+      pos.y = clamp(arrasto.py + dy, 64, innerHeight - 82 - rodape());
       alvo = null;
       pausaAte = performance.now() + 6000;
       aplicar();
@@ -73,23 +77,27 @@ export function iniciarClaudinho(o) {
     const foiClique = arrasto && !arrasto.moveu;
     arrasto = null;
     if (foiClique) clicou();
+    agendar(Math.max(700, pausaAte - performance.now()));
   });
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clicou(); }
   });
   addEventListener('resize', () => {
+    parar();
     pos.x = clamp(pos.x, 4, innerWidth - 76);
-    pos.y = clamp(pos.y, 64, innerHeight - 82);
+    pos.y = clamp(pos.y, 64, innerHeight - 82 - rodape());
     if (dormindo) estacionar();
     aplicar();
   });
-  requestAnimationFrame(passo);
+  aplicar();
+  agendar(400);
 }
 
 export function mostrarClaudinho(visivel) {
   if (!el) return;
+  const antes = el.style.display;
   el.style.display = visivel ? '' : 'none';
-  if (!visivel) fecharBalao();
+  if (!visivel && antes !== 'none') { parar(); fecharBalao(); }
 }
 
 function clicou() {
@@ -97,42 +105,72 @@ function clicou() {
     dormindo = false;
     gravarLS(LS_DORMINDO, null);
     el.classList.remove('dormindo');
+    agendar(2500);
   }
   if (balao && !ocupado) { fecharBalao(); return; }
   falar('clique');
 }
 
-let ultimoT = performance.now();
-function passo(t) {
-  const dt = Math.min(0.05, (t - ultimoT) / 1000);
-  ultimoT = t;
-  if (!dormindo && !balao && !arrasto && el.style.display !== 'none' && t > pausaAte) {
-    if (!alvo) {
-      alvo = {
-        x: 20 + Math.random() * Math.max(40, innerWidth - 120),
-        y: 90 + Math.random() * Math.max(40, innerHeight - 200),
-      };
-    }
-    const dx = alvo.x - pos.x, dy = alvo.y - pos.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 3) {
-      alvo = null;
-      pausaAte = t + 1500 + Math.random() * 5000;
-    } else {
-      const vel = 34; // px/s — passeio calmo
-      pos.x += (dx / dist) * Math.min(dist, vel * dt);
-      pos.y += (dy / dist) * Math.min(dist, vel * dt);
-      el.classList.toggle('virado', dx < 0);
-    }
+const VELOCIDADE = 34; // px/s — passeio calmo
+let caminhada = null; // { anim, de, para, t0, dur } enquanto anda de um ponto ao outro
+let timerPasso = 0;
+
+/** Onde ele está agora (no meio de um trecho, interpola). */
+function posAtual() {
+  if (!caminhada) return pos;
+  const f = clamp((performance.now() - caminhada.t0) / caminhada.dur, 0, 1);
+  return { x: caminhada.de.x + (caminhada.para.x - caminhada.de.x) * f, y: caminhada.de.y + (caminhada.para.y - caminhada.de.y) * f };
+}
+/** Interrompe o trecho atual e deixa ele parado onde está. */
+function parar() {
+  if (!caminhada) return;
+  pos = posAtual();
+  const a = caminhada.anim;
+  caminhada = null;
+  a.onfinish = null;
+  aplicar();
+  a.cancel();
+}
+function agendar(ms) {
+  clearTimeout(timerPasso);
+  timerPasso = setTimeout(passo, Math.max(16, ms));
+}
+function passo() {
+  if (caminhada) return;
+  const agora = performance.now();
+  if (dormindo || balao || arrasto || el.style.display === 'none' || document.hidden) return agendar(700);
+  if (agora < pausaAte) return agendar(pausaAte - agora);
+  const para = alvo || {
+    x: 20 + Math.random() * Math.max(40, innerWidth - 120),
+    y: 90 + Math.random() * Math.max(40, innerHeight - 200 - rodape()),
+  };
+  alvo = null;
+  const dx = para.x - pos.x, dy = para.y - pos.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 3) { pausaAte = agora + 1500 + Math.random() * 5000; return agendar(pausaAte - agora); }
+  el.classList.toggle('virado', dx < 0);
+  const dur = (dist / VELOCIDADE) * 1000;
+  const de = { ...pos };
+  const anim = el.animate(
+    [{ transform: `translate(${de.x}px, ${de.y}px)` }, { transform: `translate(${para.x}px, ${para.y}px)` }],
+    { duration: dur, easing: 'linear', fill: 'forwards' });
+  caminhada = { anim, de, para, t0: agora, dur };
+  anim.onfinish = () => {
+    if (caminhada?.anim !== anim) return;
+    caminhada = null;
+    pos = para;
     aplicar();
-  }
-  requestAnimationFrame(passo);
+    anim.cancel();
+    pausaAte = performance.now() + 1500 + Math.random() * 5000;
+    agendar(pausaAte - performance.now());
+  };
 }
 function aplicar() {
   el.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
 }
 function estacionar() {
-  pos = { x: innerWidth - 96, y: innerHeight - 100 };
+  parar();
+  pos = { x: innerWidth - 96, y: innerHeight - 100 - rodape() };
   alvo = null;
   aplicar();
 }
@@ -140,6 +178,7 @@ function estacionar() {
 // ---------- balão ----------
 function abrirBalao() {
   if (balao) return balao;
+  parar();
   const texto = h('div', { class: 'balao-texto' });
   const entrada = h('input', { placeholder: 'Responder ao Claudinho…', 'aria-label': 'Mensagem para o Claudinho', maxlength: '400' });
   const form = h('form', {
@@ -180,6 +219,7 @@ function fecharBalao() {
   balao = null;
   el?.classList.remove('falando');
   pausaAte = performance.now() + 2500;
+  if (el) agendar(2500);
 }
 function dormir() {
   dormindo = true;
