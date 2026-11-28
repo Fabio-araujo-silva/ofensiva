@@ -155,8 +155,8 @@ export function iniciarMovimento() {
   }
   addEventListener('scroll', aoRolar, { passive: true });
   const campo = (el) => el?.matches?.('input:not([type=checkbox]):not([type=range]):not([type=radio]), textarea, select');
-  addEventListener('focusin', (ev) => corpo.classList.toggle('digitando', !!campo(ev.target)));
-  addEventListener('focusout', () => setTimeout(() => corpo.classList.toggle('digitando', !!campo(document.activeElement)), 0));
+  addEventListener('focusin', (ev) => corpo.classList.toggle('teclado-aberto', !!campo(ev.target)));
+  addEventListener('focusout', () => setTimeout(() => corpo.classList.toggle('teclado-aberto', !!campo(document.activeElement)), 0));
   addEventListener('resize', () => { medir(); atualizarNav(); }, { passive: true });
   document.fonts?.ready.then(() => { medir(); atualizarNav(); });
   // imagens/fontes tardias mudam a altura: remede quando o tamanho da página mudar

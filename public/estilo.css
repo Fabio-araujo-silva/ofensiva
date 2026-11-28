@@ -1235,8 +1235,8 @@ body.no-passado .nav-dia-data { color: var(--fogo); }
   body.descendo .topo-nav { translate: 0 calc(10px + var(--seguro-b) * .5); }
   body.descendo .nav-abas .nav-tx { opacity: 0; translate: 0 6px; }
   body.descendo .nav-abas .nav-ic { translate: 0 7px; }
-  /* digitando: a barra sai da frente do teclado */
-  body.digitando .topo-nav { translate: 0 140px; opacity: 0; }
+  /* teclado aberto: a barra sai da frente do teclado */
+  body.teclado-aberto .topo-nav { translate: 0 140px; opacity: 0; }
   body.entrando .topo-nav { animation: sobe-barra .9s var(--mola) .35s backwards; }
 
   /* no passado: o "voltar pra hoje" vira uma pílula flutuante acima das abas */
@@ -1245,7 +1245,7 @@ body.no-passado .nav-dia-data { color: var(--fogo); }
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 12px 30px -8px rgba(255, 122, 31, .8);
  }
   body.com-pilula .nt-hoje { bottom: calc(142px + var(--seguro-b)); }
-  body.digitando .nt-hoje { display: none; }
+  body.teclado-aberto .nt-hoje { display: none; }
 
   /* o que flutua no rodapé sobe para cima das abas */
   #pomo-pilula { bottom: calc(86px + var(--seguro-b)); }
